@@ -1,0 +1,38 @@
+const int a = 10, b = 5;
+const char c_a = 'a';
+int set[10], y;
+char str[20];
+
+int add(int a, int b){
+  int sum;
+  sum = + a + b;
+  return(sum);
+}
+
+void printChar(char s){
+  const char a = '-';
+  const int b = 1;
+  printf("the const char is ");
+  printf(a);
+  printf("print a char: ", s);
+}
+
+void main(){
+  const int base = 0;
+  char x;
+  scanf(x);
+  str[0] = x;
+  set[1] = add(a, b);
+  set[0] = add(a, a * 100);
+  set[2] = add((a * b + 1) * 2, set[0]);
+  if (set[0]) 
+    printChar(c_a);
+  else {
+    str[0] = 'u';
+    printChar(str[0]);
+  }
+  y = -a * set[1] + b + c_a;
+  if (y == 0) {
+  }
+  return;
+}

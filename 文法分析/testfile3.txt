@@ -1,0 +1,14 @@
+const char h = 'h', E = 'E';
+
+void printHello() {
+  printf("hello world!*/123");
+}
+
+void main() {
+  const int flag = 0;
+  int i;
+  do 
+    printHello();
+  while(h == E)
+  for (i = 0; i < flag; i = i - 1);
+}

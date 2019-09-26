@@ -1,0 +1,30 @@
+int x, b, c;
+char y, z, str[10];
+
+void main() {
+  scanf(x);
+  scanf(y, z);
+  while (x > 0) {
+    x = x - 1;
+    if (x < -1) {
+      if (x > -10) {
+        c = x * b + x - 1;
+      } else 
+        c = x - -1;
+    } else {
+      if (x < 0) {
+        c = 0;
+      }
+      if (x >= 0) {
+        c = c + +1 * x;
+      }
+      if (x != 0) {
+        c = c * 2;
+      }
+    }
+    b = x / 2;
+  }
+  str[0] = y;
+  str[1] = z;
+  str[2] = y;
+}
