@@ -79,7 +79,7 @@ list<struct Lexeme> lexcialParse () {
       c = fgetc(in); // c = '
     } else if (c == '\"' ) {
       // parse string
-      alexeme = (struct Lexeme *)calloc(1, sizeof(struct Lexeme));
+      alexeme = new Lexeme;
       while((c = fgetc(in)) != '\"') {
         alexeme->value.push_back(c);
       }
@@ -91,7 +91,7 @@ list<struct Lexeme> lexcialParse () {
 }
 
 void parseIdenty (char c) {
-  alexeme = (struct Lexeme *)calloc(1, sizeof(struct Lexeme));
+  alexeme = new Lexeme;
   do {
     alexeme->value.push_back(c);
     c = fgetc(in);
@@ -104,7 +104,7 @@ void parseIdenty (char c) {
 }
 
 void parseNum (char c) {
-  alexeme = (struct Lexeme *)calloc(1, sizeof(struct Lexeme));
+  alexeme = new Lexeme;
   do {
     alexeme->value.push_back(c);
     c = fgetc(in);
@@ -115,14 +115,14 @@ void parseNum (char c) {
 }
 
 void appendLexeme (string token, string value) {
-  alexeme = (struct Lexeme *)calloc(1, sizeof(struct Lexeme)); // token = char[101]
+  alexeme = new Lexeme;
   alexeme->token = token;
   alexeme->value = value;
   tokenList.push_back(*alexeme);
 }
 
 int isReserved () {
-  char * token = alexeme->value.data();
+  auto token = alexeme->value.data();
   if (strcmp(token, "const") == 0) {
     alexeme->token = "CONSTTK";
   } else if (strcmp(token, "int") == 0) {

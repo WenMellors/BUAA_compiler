@@ -6,7 +6,7 @@ SyntaxNode::SyntaxNode(string value, string value2, string token) {
   lexicalToken = token;
 }
 
-void SyntaxNode::appendChild(SyntaxNode child) {
+void SyntaxNode::appendChild(SyntaxNode* child) {
   children.push_back(child);
 }
 
@@ -26,6 +26,6 @@ string SyntaxNode::getLexicalToken() {
   return lexicalToken;
 }
 
-list<SyntaxNode> SyntaxNode::getChildren() {
+list<SyntaxNode*> SyntaxNode::getChildren() {
   return children;
 }

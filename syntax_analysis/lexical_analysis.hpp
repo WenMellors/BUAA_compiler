@@ -6,6 +6,7 @@
 using namespace std;
 
 struct Lexeme{
+  Lexeme() {}
   string token;
   string value;
 };
