@@ -146,7 +146,7 @@ void constDefineParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root) { /
 }
 
 void numParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root) { // 整数
-  if ((*iter)->token != "INTCON") {
+  if ((*iter)->value == "+" || (*iter)->value == "-") {
     appendLeaf(iter, root); // + or -
   }
   SyntaxNode* tempRoot = new SyntaxNode("<无符号整数>", "", "");
@@ -354,7 +354,7 @@ void expParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root) { // 表达
   if ((*iter)->value == "+" || (*iter)->value == "-") {
     appendLeaf(iter, root); // + or -
   }
-   while (true) {
+  while (true) {
     SyntaxNode* polyRoot = new SyntaxNode("<项>", "", "");
     root->appendChild(polyRoot);
     polyParse(iter, polyRoot);
@@ -392,6 +392,7 @@ void factorParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root) { // 因
     } else {
       appendLeaf(iter, root);
       if ((*iter)->value == "[") {
+        appendLeaf(iter, root);
         SyntaxNode* expRoot = new SyntaxNode("<表达式>", "", "");
         root->appendChild(expRoot);
         expParse(iter, expRoot);
