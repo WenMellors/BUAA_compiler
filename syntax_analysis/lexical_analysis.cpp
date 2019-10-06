@@ -56,6 +56,9 @@ list<struct Lexeme> lexcialParse () {
       }
     } else if (c == '!') {
       c = fgetc(in); // c must be =
+      if (c != '=') {
+        exit(-1);
+      }
       appendLexeme("NEQ", "!=");
     } else if (c == ';') {
       appendLexeme("SEMICN", ";");
