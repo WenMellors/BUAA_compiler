@@ -60,17 +60,17 @@ void buildSyntaxTree(list<struct Lexeme> tokenList, SyntaxNode * root) {
   Status status = parseConst;
   while (iter != tokenList.end()) {
     // check whether is "常量说明"
-    if (iter->value == "const") {
+    if (iter->token == "CONSTTK") {
       SyntaxNode* constRoot = new SyntaxNode("<常量说明>", "", "");
       root->appendChild(constRoot);
       constParse(&iter, constRoot);
       // finish const parse
-    } else if (iter->value == "int" || iter->value == "char") {
+    } else if (iter->token == "INTTK" || iter->token == "CHARTK") {
       // may be var def or func def
       if (status == parseConst) {
         iter++; // IDENFR
         iter++;
-        if (iter->value == "(") {
+        if (iter->token == "LPARENT") {
           status = parseFunc;
         } else {
           status = parseVar;
@@ -91,11 +91,11 @@ void buildSyntaxTree(list<struct Lexeme> tokenList, SyntaxNode * root) {
       }
     } else {
       // must be VOID func or main
-      if ((iter)->value != "void") {
+      if ((iter)->token != "VOIDTK") {
         exit(-1);
       }
       iter++;
-      if (iter->value == "main") {
+      if (iter->token == "MAINTK") {
         iter--; // void
         SyntaxNode* mainRoot = new SyntaxNode("<主函数>", "", "");
         root->appendChild(mainRoot);
