@@ -4,3 +4,5 @@
 .vs
 syntaxAnalysis
 debug
+*.txt
+*.jar
