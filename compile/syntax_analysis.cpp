@@ -32,7 +32,7 @@ void voidFuncParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root);
 bool sentenceListParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type);
 bool sentenceParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type);
 bool ifParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type);
-void conditionParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root);
+void conditionParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, bool isZeroBranch);
 int expParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root); // 0 int 1 char
 int polyParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root);
 int factorParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root);
@@ -514,9 +514,8 @@ bool ifParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type) { 
   appendLeaf(iter, root); // (
   SyntaxNode* tempRoot = new SyntaxNode("<条件>", "", "");
   root->appendChild(tempRoot);
-  conditionParse(iter, tempRoot);
   int elseLabel = ++labelCnt;
-  fprintf(out, "$bez %dt label%d\n", regCnt, elseLabel);
+  conditionParse(iter, tempRoot, true);
   if ((*iter)->token != "RPARENT") {
     printError((*iter)->lineNumber, 'l');
   } else {
@@ -541,7 +540,7 @@ bool ifParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type) { 
 }
 
 // 返回时 regCnt 保存条件结果
-void conditionParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root) { // 条件
+void conditionParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, bool isZeroBrach) { // 条件
   SyntaxNode* expressionRoot = new SyntaxNode("<表达式>", "", "");
   root->appendChild(expressionRoot);
   int res = expParse(iter, expressionRoot);
@@ -557,7 +556,26 @@ void conditionParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root) { // 
     expressionRoot = new SyntaxNode("<表达式>", "", "");
     root->appendChild(expressionRoot);
     res = expParse(iter, expressionRoot);
-    fprintf(out, "%dt = %s %s %s\n", ++regCnt, firstPart->value.data(), op.data(), expressionRoot->value.data());
+    if ((op == "==" && isZeroBrach) || (op == "!=" && !isZeroBrach)) {
+      // 话句话说 a == b 为假的时候跳转 或者 a != b 为真的时候跳转
+      // 即 a != b 跳转
+      fprintf(out, "$bne %s %s label%d\n", firstPart->value.data(), expressionRoot->value.data(), labelCnt);
+    } else if ((op == "<" && isZeroBrach) || (op == ">" && !isZeroBrach)) {
+      // a > b 跳转
+      fprintf(out, "$bgt %s %s label%d\n", firstPart->value.data(), expressionRoot->value.data(), labelCnt);
+    } else if ((op == "<=" && isZeroBrach) || (op == ">=" && !isZeroBrach)) {
+      // a >= b 跳转
+      fprintf(out, "$bge %s %s label%d\n", firstPart->value.data(), expressionRoot->value.data(), labelCnt);
+    } else if ((op == ">" && isZeroBrach) || (op == "<" && !isZeroBrach)) {
+      // a < b 跳转
+      fprintf(out, "$blt %s %s label%d\n", firstPart->value.data(), expressionRoot->value.data(), labelCnt);
+    } else if ((op == ">=" && isZeroBrach) || (op == "<=" && !isZeroBrach)) {
+      // a <= b 跳转
+      fprintf(out, "$ble %s %s label%d\n", firstPart->value.data(), expressionRoot->value.data(), labelCnt);
+    } else if ((op == "!=" && isZeroBrach) || (op == "==" && !isZeroBrach)) {
+      // a == b 跳转
+      fprintf(out, "$beq %s %s label%d\n", firstPart->value.data(), expressionRoot->value.data(), labelCnt);
+    }
     if (res != INT) {
       (*iter)--;
       printError((*iter)->lineNumber, 'f');
@@ -565,10 +583,10 @@ void conditionParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root) { // 
     }
   } else {
     // 只有一个表达式
-    if (regCnt == 0) {
-      // 该表达式没有输出
-      fprintf(out, "%dt = %s\n", ++regCnt, firstPart->value.data());
-      // 让 regCnt_t 代表 condition 
+    if (isZeroBrach) {
+      fprintf(out, "$bez %s label%d\n", firstPart->value.data());
+    } else {
+      fprintf(out, "$bnz %s label%d\n", firstPart->value.data());
     }
   }
 }
@@ -784,9 +802,8 @@ bool circleParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type
     appendLeaf(iter, root); // (
     SyntaxNode* tempRoot = new SyntaxNode("<条件>", "", "");
     root->appendChild(tempRoot);
-    conditionParse(iter, tempRoot);
     int endWhile = ++labelCnt;
-    fprintf(out, "$bez %dt label%d\n", regCnt, endWhile);
+    conditionParse(iter, tempRoot, true);
     if ((*iter)->token != "RPARENT") {
       printError((*iter)->lineNumber, 'l');
     } else {
@@ -815,8 +832,7 @@ bool circleParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type
     appendLeaf(iter, root); // (
     tempRoot = new SyntaxNode("<条件>", "", "");
     root->appendChild(tempRoot);
-    conditionParse(iter, tempRoot);
-    fprintf(out, "$bnz %dt label%d\n", regCnt, doLabel);
+    conditionParse(iter, tempRoot, false);
     if ((*iter)->token != "RPARENT") {
       printError((*iter)->lineNumber, 'l');
     } else {
@@ -853,9 +869,8 @@ bool circleParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type
     }
     tempRoot = new SyntaxNode("<条件>", "", "");
     root->appendChild(tempRoot);
-    conditionParse(iter, tempRoot);
     int endFor = ++labelCnt;
-    fprintf(out, "$bez %dt label%d\n", regCnt, endFor);
+    conditionParse(iter, tempRoot, true);
     if ((*iter)->token != "SEMICN") {
       printError((*iter)->lineNumber, 'k');
     } else {

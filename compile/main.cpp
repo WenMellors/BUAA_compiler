@@ -357,14 +357,14 @@ void genMips() {
         printf("bez error\n");
         exit(0);
       }
-      fprintf(mips, "bez $%d, %s\n", loadMid(strs[1]), strs[2].data());
+      fprintf(mips, "beq $%d, $0, %s\n", loadMid(strs[1]), strs[2].data());
       popMid(strs[1]);
     } else if (strs[0] == "$bnz") {
       if (strs.size() != 3) {
         printf("bnz error\n");
         exit(0);
       }
-      fprintf(mips, "bnz $%d, %s\n", loadMid(strs[1]), strs[2].data());
+      fprintf(mips, "bnq $%d, $0, %s\n", loadMid(strs[1]), strs[2].data());
       popMid(strs[1]);
     } else if (strs[0] == "$push") {
       if (strs.size() != 3){
@@ -492,6 +492,42 @@ void genMips() {
       // 加载局部符号表，并分配 sp 空间
       symbolTable[1] = symbolMap[strs[1]];
       initVar(1);
+    } else if (strs[0] == "$bne" || strs[0] == "$beq" || strs[0] == "$bge" || strs[0] == "$bgt" || strs[0] == "$blt" || strs[0] == "$ble") {
+      int regA;
+      int regB;
+      if (isChar(strs[1])) {
+        regA = findNextReg();
+        int ascii = strs[1][1];
+        fprintf(mips, "li $%d, %d\n", regA, ascii);
+      } else if (isConst(strs[1])) {
+        regA = findNextReg();
+        fprintf(mips, "li $%d, %d\n", regA, getConst(strs[1]));
+      } else if (isNum(strs[1])) {
+        regA = findNextReg();
+        fprintf(mips, "li $%d, %d\n", regA, stoi(strs[1]));
+      } else if (isMid(strs[1])) {
+        regA = loadMid(strs[1]);
+        midUse.insert({ strs[1], 1 });
+      } else {
+        regA = load(strs[1]);
+        setUse(strs[1]);
+      }
+      if (isChar(strs[2])) {
+        regB = findNextReg();
+        int ascii = strs[2][1];
+        fprintf(mips, "li $%d, %d\n", regB, ascii);
+      } else if (isConst(strs[2])) {
+        regB = findNextReg();
+        fprintf(mips, "li $%d, %d\n", regB, getConst(strs[2]));
+      } else if (isNum(strs[2])) {
+        regB = findNextReg();
+        fprintf(mips, "li $%d, %d\n", regB, stoi(strs[2]));
+      } else if (isMid(strs[2])) {
+        regB = loadMid(strs[2]);
+      } else {
+        regB = load(strs[1]);
+      }
+      fprintf(mips, "%s $%d, $%d, %s\n", strs[0].substr(1, 3).data(), regA, regB, strs[3].data());
     } else {
       if (strs[1] != "=") {
         printf("unkown mid code\n");
