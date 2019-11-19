@@ -528,6 +528,13 @@ void genMips() {
         regB = load(strs[1]);
       }
       fprintf(mips, "%s $%d, $%d, %s\n", strs[0].substr(1, 3).data(), regA, regB, strs[3].data());
+      if (isMid(strs[1])) {
+        popMid(strs[1]);
+      } else if (isChar(strs[1]) || isConst(strs[1]) || isNum(strs[1])) {
+        regUse[regA] = 0;
+      } else {
+        freeUse(strs[1]);
+      }
     } else {
       if (strs[1] != "=") {
         printf("unkown mid code\n");
