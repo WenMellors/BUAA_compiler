@@ -560,18 +560,18 @@ void conditionParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, bool 
       // 话句话说 a == b 为假的时候跳转 或者 a != b 为真的时候跳转
       // 即 a != b 跳转
       fprintf(out, "$bne %s %s label%d\n", firstPart->value.data(), expressionRoot->value.data(), labelCnt);
-    } else if ((op == "<" && isZeroBrach) || (op == ">" && !isZeroBrach)) {
-      // a > b 跳转
-      fprintf(out, "$bgt %s %s label%d\n", firstPart->value.data(), expressionRoot->value.data(), labelCnt);
-    } else if ((op == "<=" && isZeroBrach) || (op == ">=" && !isZeroBrach)) {
+    } else if ((op == "<" && isZeroBrach) || (op == ">=" && !isZeroBrach)) {
       // a >= b 跳转
       fprintf(out, "$bge %s %s label%d\n", firstPart->value.data(), expressionRoot->value.data(), labelCnt);
-    } else if ((op == ">" && isZeroBrach) || (op == "<" && !isZeroBrach)) {
-      // a < b 跳转
-      fprintf(out, "$blt %s %s label%d\n", firstPart->value.data(), expressionRoot->value.data(), labelCnt);
-    } else if ((op == ">=" && isZeroBrach) || (op == "<=" && !isZeroBrach)) {
+    } else if ((op == "<=" && isZeroBrach) || (op == ">" && !isZeroBrach)) {
+      // a > b 跳转
+      fprintf(out, "$bgt %s %s label%d\n", firstPart->value.data(), expressionRoot->value.data(), labelCnt);
+    } else if ((op == ">" && isZeroBrach) || (op == "<=" && !isZeroBrach)) {
       // a <= b 跳转
       fprintf(out, "$ble %s %s label%d\n", firstPart->value.data(), expressionRoot->value.data(), labelCnt);
+    } else if ((op == ">=" && isZeroBrach) || (op == "<" && !isZeroBrach)) {
+      // a < b 跳转
+      fprintf(out, "$blt %s %s label%d\n", firstPart->value.data(), expressionRoot->value.data(), labelCnt);
     } else if ((op == "!=" && isZeroBrach) || (op == "==" && !isZeroBrach)) {
       // a == b 跳转
       fprintf(out, "$beq %s %s label%d\n", firstPart->value.data(), expressionRoot->value.data(), labelCnt);
@@ -584,9 +584,9 @@ void conditionParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, bool 
   } else {
     // 只有一个表达式
     if (isZeroBrach) {
-      fprintf(out, "$bez %s label%d\n", firstPart->value.data());
+      fprintf(out, "$bez %s label%d\n", firstPart->value.data(), labelCnt);
     } else {
-      fprintf(out, "$bnz %s label%d\n", firstPart->value.data());
+      fprintf(out, "$bnz %s label%d\n", firstPart->value.data(), labelCnt);
     }
   }
 }
@@ -796,6 +796,7 @@ bool circleParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type
     appendLeaf(iter, root); // while
     int whileLabel = ++labelCnt;
     fprintf(out, "label%d:\n", whileLabel);
+    fprintf(out, "$start circle\n");
     if ((*iter)->token != "LPARENT") {
       exit(-1);
     }
@@ -813,11 +814,12 @@ bool circleParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type
     root->appendChild(tempRoot);
     sentenceParse(iter, tempRoot, type);
     fprintf(out, "$j label%d\n", whileLabel);
-    fprintf(out, "label%d\n", endWhile);
+    fprintf(out, "label%d:\n", endWhile);
   } else if ((*iter)->token == "DOTK") {
     appendLeaf(iter, root); // do
     int doLabel = ++labelCnt;
-    fprintf(out, "label%d\n", doLabel);
+    fprintf(out, "label%d:\n", doLabel);
+    fprintf(out, "$start circle\n");
     SyntaxNode* tempRoot = new SyntaxNode("<语句>", "", "");
     root->appendChild(tempRoot);
     has = sentenceParse(iter, tempRoot, type);
@@ -862,6 +864,7 @@ bool circleParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type
     fprintf(out, "%s = %s\n", iden.data(), tempRoot->value.data());
     int forLabel = ++labelCnt;
     fprintf(out, "label%d:\n", forLabel);
+    fprintf(out, "$start circle\n");
     if ((*iter)->token != "SEMICN") {
       printError((*iter)->lineNumber, 'k');
     } else {

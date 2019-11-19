@@ -336,6 +336,25 @@ void freeUse(string name) {
   sym->use = 0;
 }
 
+void popAllVar() { // 将所有变量换出去
+  for(list<Symbol*>::iterator iter = symbolTable[0].begin(); iter != symbolTable[0].end(); iter++) {
+    if ((*iter)->regNo != 0 && (*iter)->use == 0) {
+      // 将其换出
+      fprintf(mips, "sw $%d, %d($gp)\n", (*iter)->regNo, (*iter)->spOff); // 存到 gp
+      regUse[(*iter)->regNo - 8] = 0; // set regUse free
+      (*iter)->regNo = 0;
+    }
+  }
+  for(list<Symbol*>::iterator iter = symbolTable[1].begin(); iter != symbolTable[1].end(); iter++) {
+    if ((*iter)->regNo != 0 && (*iter)->use == 0) {
+      // 将其换出
+      fprintf(mips, "sw $%d, %d($fp)\n", (*iter)->regNo, (*iter)->spOff); // 存到 gp
+      regUse[(*iter)->regNo - 8] = 0; // set regUse free
+      (*iter)->regNo = 0;
+    }
+  }
+}
+
 void genMips() {
   while(!mid.eof()) {
     string line;
@@ -492,6 +511,7 @@ void genMips() {
       // 加载局部符号表，并分配 sp 空间
       symbolTable[1] = symbolMap[strs[1]];
       initVar(1);
+      popAllVar();
     } else if (strs[0] == "$bne" || strs[0] == "$beq" || strs[0] == "$bge" || strs[0] == "$bgt" || strs[0] == "$blt" || strs[0] == "$ble") {
       int regA;
       int regB;
@@ -535,6 +555,8 @@ void genMips() {
       } else {
         freeUse(strs[1]);
       }
+    } else if (strs[0] == "$start") { // 开始编译循环语句
+      popAllVar();
     } else {
       if (strs[1] != "=") {
         printf("unkown mid code\n");
