@@ -796,7 +796,6 @@ bool circleParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type
     appendLeaf(iter, root); // while
     int whileLabel = ++labelCnt;
     fprintf(out, "label%d:\n", whileLabel);
-    fprintf(out, "$start circle\n");
     if ((*iter)->token != "LPARENT") {
       exit(-1);
     }
@@ -819,7 +818,6 @@ bool circleParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type
     appendLeaf(iter, root); // do
     int doLabel = ++labelCnt;
     fprintf(out, "label%d:\n", doLabel);
-    fprintf(out, "$start circle\n");
     SyntaxNode* tempRoot = new SyntaxNode("<语句>", "", "");
     root->appendChild(tempRoot);
     has = sentenceParse(iter, tempRoot, type);
@@ -864,7 +862,6 @@ bool circleParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type
     fprintf(out, "%s = %s\n", iden.data(), tempRoot->value.data());
     int forLabel = ++labelCnt;
     fprintf(out, "label%d:\n", forLabel);
-    fprintf(out, "$start circle\n");
     if ((*iter)->token != "SEMICN") {
       printError((*iter)->lineNumber, 'k');
     } else {

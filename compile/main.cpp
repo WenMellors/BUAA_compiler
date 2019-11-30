@@ -11,30 +11,29 @@ int nextReg;
 map<string, int> midVar; // 存放中间变量被分配到的寄存器, 如果对应值为负，则为其在 DM 的偏移的负数
 map<string, int> midUse; // 正在使用中的中间变量，不可以替换
 int dmOff;
-ifstream mid;
 FILE* mips;
 void genMips();
 void initData();
 void initVar(int level);
+void blockAnalysis();
 
 int main () {
   list<struct Lexeme> tokenList;
   tokenList = lexcialParse();
   syntaxParse(tokenList);
-  mid.open("semi-code.txt");
+  // blockAnalysis();
   mips = fopen("mips.txt", "w");
   initData();
   fprintf(mips, ".text\n");
   fprintf(mips, "la $k0, d\n");
   fprintf(mips, "move $gp, $sp\n");
-  fprintf(mips, "move $fp, $sp\n"); // 初始化栈帧
   symbolTable[0] = symbolMap.at("global"); // load global Table
   initVar(0);
+  fprintf(mips, "move $fp, $sp\n"); // 初始化栈帧
   fprintf(mips, "jal main\n"); // 跳转到 main 函数
   fprintf(mips, "li $v0, 10\n");
   fprintf(mips, "syscall\n"); // 结束进程
   genMips();
-  fclose(mips);
   return 0;
 }
 
@@ -130,6 +129,7 @@ int findNextReg() {
   }
   // 找了一圈发现没有未使用的寄存器，策略：先将全局变量移出寄存器堆，再将局部变量，最后是中间变量, 不可以把正在使用的寄存器换出去
   for(list<Symbol*>::iterator iter = symbolTable[0].begin(); iter != symbolTable[0].end(); iter++) {
+    printf("there is global var in reg! %s", (*iter)->name.data());
     if ((*iter)->regNo != 0 && (*iter)->use == 0) {
       // 将其换出
       int res = (*iter)->regNo; // regNo 已经 + 8
@@ -139,10 +139,11 @@ int findNextReg() {
     }
   }
   for(list<Symbol*>::iterator iter = symbolTable[1].begin(); iter != symbolTable[1].end(); iter++) {
+    printf("there is local var in reg! %s", (*iter)->name.data());
     if ((*iter)->regNo != 0 && (*iter)->use == 0) {
       // 将其换出
       int res = (*iter)->regNo; // regNo 已经 + 8
-      fprintf(mips, "sw $%d, %d($fp)\n", res, (*iter)->spOff); // 存到 gp
+      fprintf(mips, "sw $%d, %d($fp)\n", res, (*iter)->spOff); // 存到 fp
       (*iter)->regNo = 0;
       return res;
     }
@@ -232,6 +233,34 @@ int load(string name) {
   }
 }
 
+void pop(string name, bool rewrite) {
+  int level = 1;
+  Symbol* sym = lookTable(name, 1);
+  if (sym == NULL) {
+    level = 0;
+    sym = lookTable(name, 0);
+    if (sym == NULL) {
+      printf("not find symbol\n");
+      exit(0);
+    }
+  }
+  if (sym->regNo != 0) {
+    // 将变量换出寄存器堆
+    if (rewrite) { // 如果修改了就写回栈里
+      if (level == 0) {
+        // 全局变量
+        fprintf(mips, "sw $%d, %d($gp)\n", sym->regNo, sym->spOff);
+      } else {
+        // 局部变量
+        fprintf(mips, "sw $%d, %d($fp)\n", sym->regNo, sym->spOff);
+      }
+    }
+    regUse[sym->regNo - 8] = 0;
+    sym->regNo = 0;
+    sym->use = 0;
+  }
+}
+
 int loadMid(string name) {
   // 如果中间变量在寄存堆里面，则直接返回
   if (midVar.find(name) == midVar.end()) {
@@ -256,7 +285,7 @@ int loadMid(string name) {
 void saveAll() {
   // t0-t9, s0-s7, fp, ra 一共 20 个
   int off = 0;
-  fprintf(mips, "addi $sp, $sp, -%d\n", -20*4);
+  fprintf(mips, "addi $sp, $sp, -80\n");
   for(int i = 8; i <= 25; i++) {
     fprintf(mips, "sw $%d, %d($sp)\n", i, off);
     off +=4;
@@ -356,6 +385,8 @@ void popAllVar() { // 将所有变量换出去
 }
 
 void genMips() {
+  ifstream mid;
+  mid.open("semi-code.txt");
   while(!mid.eof()) {
     string line;
     getline(mid, line); // 按行读取
@@ -411,8 +442,8 @@ void genMips() {
         } else {
           int reg = load(strs[1]);
           fprintf(mips, "sw $%d, -%d($fp)\n", reg, 4*stoi(strs[2]));
+          pop(strs[2], false);
         }
-
       }
     } else if (strs[0] == "$save") {
       // 保存现场，fp 指向 sp，自减 sp
@@ -438,6 +469,7 @@ void genMips() {
       }
       int reg = load(strs[2]); // TODO: 不能对 const 变量进行 scanf
       fprintf(mips, "move $%d, $v0\n", reg);
+      pop(strs[2], true); // 用完变量就放回
     } else if (strs[0] == "$print") {
       if (strs.size() == 2) {
         if (strs[1] == "newline") {
@@ -472,6 +504,7 @@ void genMips() {
             fprintf(mips, "li $a0, %d\n", getConst(strs[2]));
           } else {
             fprintf(mips, "move $a0, $%d\n", load(strs[2]));
+            pop(strs[2], false);
           }
         }
         fprintf(mips, "syscall\n");
@@ -497,6 +530,7 @@ void genMips() {
             fprintf(mips, "li $v0, %d\n", getConst(strs[1]));
           } else {
             fprintf(mips, "move $v0, $%d\n", load(strs[1]));
+            pop(strs[1], false);
           }
         }
         popStack();
@@ -545,18 +579,23 @@ void genMips() {
       } else if (isMid(strs[2])) {
         regB = loadMid(strs[2]);
       } else {
-        regB = load(strs[1]);
+        regB = load(strs[2]);
       }
       fprintf(mips, "%s $%d, $%d, %s\n", strs[0].substr(1, 3).data(), regA, regB, strs[3].data());
-      if (isMid(strs[1])) {
+      if (isMid(strs[1])) { // 中间变量使用结束，报废
         popMid(strs[1]);
       } else if (isChar(strs[1]) || isConst(strs[1]) || isNum(strs[1])) {
-        regUse[regA] = 0;
+        regUse[regA - 8] = 0;
       } else {
-        freeUse(strs[1]);
+        pop(strs[1], false);
       }
-    } else if (strs[0] == "$start") { // 开始编译循环语句
-      popAllVar();
+      if (isMid(strs[2])) {
+        popMid(strs[2]);
+      } else if (isChar(strs[2]) || isConst(strs[2]) || isNum(strs[2])) {
+        regUse[regB - 8] = 0;
+      } else {
+        pop(strs[2], false);
+      }
     } else {
       if (strs[1] != "=") {
         printf("unkown mid code\n");
@@ -635,7 +674,12 @@ void genMips() {
               fprintf(mips, "%s $%d, $%d, %d\n", strs[3] == "*" ? "mul" : "div", regA, regC, getConst(strs[2]));
             }
           }
-          popMid(strs[4]); // 中间变量一旦被使用就可以丢弃了 
+          if (isMid(strs[4])) {
+            // 一定加载过了的，所以只需要找到它就可以了
+            popMid(strs[4]);
+          } else {
+            pop(strs[4], false);
+          }
         } else if (isChar(strs[4]) || isNum(strs[4]) || isConst(strs[4])) { // b 为标识符或者中间变量
           int regB = 0;
           if (isMid(strs[2])) {
@@ -663,7 +707,12 @@ void genMips() {
               fprintf(mips, "%s $%d, $%d, %d\n", strs[3] == "*" ? "mul" : "div", regA, regB, getConst(strs[4]));
             }
           }
-          popMid(strs[2]); // 中间变量一旦被使用就可以丢弃了
+          if (isMid(strs[2])) {
+            // 一定加载过了的，所以只需要找到它就可以了
+            popMid(strs[2]);
+          } else {
+            pop(strs[2], false);
+          }
         } else { // b c 都是标识符或者中间变量
           int regB = 0;
           int regC = 0;
@@ -687,9 +736,13 @@ void genMips() {
           if (isMid(strs[2])) {
             popMid(strs[2]);
           } else {
-            freeUse(strs[2]);
+            pop(strs[2], false);
           }
-          popMid(strs[4]); // 不管是不是中间变量都可以 pop
+          if (isMid(strs[4])) {
+            popMid(strs[4]);
+          } else {
+            pop(strs[4], false);
+          }
         }
       } else if (strs.size() == 4) { // 有前导 + - 号的表达式 a = op b
         // b 可以为中间变量或者 expValue
@@ -705,6 +758,7 @@ void genMips() {
             fprintf(mips, "addi $%d, $0, %d\n", regA, strs[2] == "+" ? getConst(strs[3]) : -getConst(strs[3]));
           } else {
             fprintf(mips, "%s $%d, $0, $%d\n", strs[2] == "+" ? "add" : "sub", regA, load(strs[3]));
+            pop(strs[3], false);
           }
         }
       } else if (strs[0].back() == ']') { // 赋值给数组 a[b] = c
@@ -736,6 +790,7 @@ void genMips() {
             fprintf(mips, "sll $k1, %d, 2\n", getConst(b));
           } else {
             fprintf(mips, "sllv $k1, $%d, 2\n", load(b));
+            pop(b, false);
           }
           fprintf(mips, "add $k1, $fp, $k1\n"); // 修改起始地址
         }
@@ -763,6 +818,13 @@ void genMips() {
           fprintf(mips, "sw $%d, %d($k1)\n", reg, off);
         } else {
           fprintf(mips, "sw $%d, %d($fp)\n", reg, off);
+        }
+        if (reg != 1) { // 标识符或者中间变量
+          if (isMid(strs[2])) {
+            popMid(strs[2]);
+          } else {
+            pop(strs[2], false);
+          }
         }
       } else if (strs[2].back() == ']') { // 取出数组的值 a = b[c]
         string c = strs[2].substr(strs[0].find('[') + 1, strs[0].length() - strs[0].find('[') - 2);
@@ -793,6 +855,7 @@ void genMips() {
             fprintf(mips, "sll $k1, %d, 2\n", getConst(c));
           } else {
             fprintf(mips, "sllv $k1, $%d, 2\n", load(c));
+            pop(c, false);
           }
           fprintf(mips, "add $k1, $fp, $k1\n"); // 修改起始地址
         }
@@ -817,17 +880,44 @@ void genMips() {
             fprintf(mips, "li $%d, %d\n", regA, getConst(strs[2]));
           } else {
             fprintf(mips, "move $%d, $%d\n", regA, load(strs[2]));
+            pop(strs[2], false);
           }
         }
       }
       // 取消 A 的占用情况
       if (!isMid(strs[0]) && strs[0].back() != ']') {
         // 单个标识符
-        freeUse(strs[0]);
+        pop(strs[0], true);
       } else if (isMid(strs[0])){
         // 中间变量
         midUse.erase(strs[0]);
       }
+    }
+  }
+}
+
+void blockAnalysis() {
+  int lineNo = 0;
+  vector<struct Block*> blocks;
+  vector<int> entrys; // 存储入口语句以及结束语句, 应该时递增的
+  ifstream mid;
+  mid.open("semi-code.txt");
+  while(!mid.eof()) {
+    string line;
+    getline(mid, line); // 按行读取
+    lineNo++;
+    if (line == "") {
+      return;
+    }
+    vector<string> strs = split(line, ' ');
+    if (strs[0] == "int" || strs[0] == "void" || strs[0] == "char") {
+      // 函数定义，函数入口
+      entrys.push_back(lineNo);
+    } else if (strs[0] == "$bne" || strs[0] == "$beq" || strs[0] == "$bge" || strs[0] == "$bgt" || strs[0] == "$blt" || strs[0] == "$ble") {
+      entrys.push_back(lineNo);
+      entrys.push_back(lineNo + 1);
+    } else if (strs[0] == "return") {
+      entrys.push_back(lineNo);
     }
   }
 }

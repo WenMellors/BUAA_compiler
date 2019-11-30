@@ -94,6 +94,9 @@ list<struct Lexeme> lexcialParse () {
         if (c != 32 && c != 33 && c < 35 && c > 126) {
           alexeme->error = true;
         }
+        if (c == '\\') { // 不支持转义字符
+          alexeme->value.push_back(c);
+        }
         alexeme->value.push_back(c);
       }
       alexeme->token = "STRCON";
