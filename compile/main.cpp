@@ -157,8 +157,8 @@ int findNextReg() {
     }
   }
   // cannot be this
-  printf("not enough reg\n");
-  exit(0);
+  fprintf(stderr, "not enough reg\n");
+  exit(1);
   return -1;
 }
 
@@ -182,8 +182,8 @@ int getConst(string name) {
   if (sym == NULL) {
     sym = lookTable(name, 0);
     if (sym == NULL) {
-      printf("not find symbol\n");
-      exit(0);
+      fprintf(stderr, "not find symbol\n");
+      exit(1);
     }
   }
   if (sym->kind == CONST) {
@@ -205,8 +205,8 @@ int load(string name) {
     level = 0;
     sym = lookTable(name, 0);
     if (sym == NULL) {
-      printf("not find symbol\n");
-      exit(0);
+      fprintf(stderr, "not find symbol\n");
+      exit(1);
     }
   }
   sym->use++; // 引用次数加一
@@ -217,8 +217,8 @@ int load(string name) {
     // 要加载
     int reg = findNextReg();
     if (reg == -1) {
-      printf("no enough reg\n");
-      exit(0);
+      fprintf(stderr, "no enough reg\n");
+      exit(1);
     }
     if (level == 0) {
       // 全局变量
@@ -239,8 +239,8 @@ void pop(string name, bool rewrite) {
     level = 0;
     sym = lookTable(name, 0);
     if (sym == NULL) {
-      printf("not find symbol\n");
-      exit(0);
+      fprintf(stderr, "not find symbol\n");
+      exit(1);
     }
   }
   sym->use --;
@@ -266,16 +266,16 @@ int loadMid(string name) {
   // 如果中间变量在寄存堆里面，则直接返回
   if (midVar.find(name) == midVar.end()) {
     // 没有这个中间变量，它要么没加载，要么已经出去了
-    printf("not found mid var\n");
-    exit(0);
+    fprintf(stderr, "not found mid var\n");
+    exit(1);
   }
   if (midVar.at(name) > 0 ) {
     return midVar.at(name);
   } else {
     int reg = findNextReg();
     if (reg == -1) {
-      printf("no enough reg\n");
-      exit(0);
+      fprintf(stderr, "no enough reg\n");
+      exit(1);
     }
     fprintf(mips, "lw $%d, %d($k0)\n", reg, -midVar[name]);
     midVar.at(name) = reg; //TODO: 检查这个修改应该 ok
@@ -347,8 +347,8 @@ void setUse(string name) {
   if (sym == NULL) {
     sym = lookTable(name, 0);
     if (sym == NULL) {
-      printf("not find symbol\n");
-      exit(0);
+      fprintf(stderr, "not find symbol\n");
+      exit(1);
     }
   }
   sym->use = 1;
@@ -359,8 +359,8 @@ void freeUse(string name) {
   if (sym == NULL) {
     sym = lookTable(name, 0);
     if (sym == NULL) {
-      printf("not find symbol\n");
-      exit(0);
+      fprintf(stderr, "not find symbol\n");
+      exit(1);
     }
   }
   sym->use = 0;
@@ -399,14 +399,14 @@ void genMips() {
       // j label
       if (strs.size() != 2) {
         // 应该只有两个
-        printf("j error\n");
+        fprintf(stderr, "j error\n");
         exit(1);
       }
       fprintf(mips, "j %s\n", strs[1].data());
     } else if (strs[0] == "$bez") {
       if (strs.size() != 3) {
-        printf("bez error\n");
-        exit(0);
+        fprintf(stderr, "bez error\n");
+        exit(1);
       }
       int regA;
       if (isChar(strs[1])) {
@@ -436,8 +436,8 @@ void genMips() {
       }
     } else if (strs[0] == "$bnz") {
       if (strs.size() != 3) {
-        printf("bnz error\n");
-        exit(0);
+        fprintf(stderr, "bnz error\n");
+        exit(1);
       }
       int regA;
       if (isChar(strs[1])) {
@@ -467,8 +467,8 @@ void genMips() {
       }
     } else if (strs[0] == "$push") {
       if (strs.size() != 4){
-        printf("error push\n");
-        exit(0);
+        fprintf(stderr, "error push\n");
+        exit(1);
       }
       if (strs[1].length() == 3 && strs[1][0] == '\'' && strs[1][2] == '\'') {
         // 表达式为一个字符，存入 ASCII 码值
@@ -499,16 +499,16 @@ void genMips() {
       saveAll();
       Symbol* sym = lookTable(strs[2], 0);
       if (sym == NULL) {
-        printf("use func error\n");
-        exit(0);
+        fprintf(stderr, "use func error\n");
+        exit(1);
       }
       int paraLen = sym->remark.length();
       fprintf(mips, "addi $sp, $sp, -%d\n", paraLen * 4);
     } else if (strs[0] == "$call") {
       Symbol* sym = lookTable(strs[1], 0);
       if (sym == NULL) {
-        printf("use func error\n");
-        exit(0);
+        fprintf(stderr, "use func error\n");
+        exit(1);
       }
       int paraLen = sym->remark.length();
       fprintf(mips, "addi $fp, $sp, %d\n", paraLen*4); // update fp
@@ -653,8 +653,8 @@ void genMips() {
       }
     } else {
       if (strs[1] != "=") {
-        printf("unkown mid code\n");
-        exit(0);
+        fprintf(stderr, "unkown mid code\n");
+        exit(1);
       }
       int regA = 0;
       if (!isMid(strs[0]) && strs[0].back() != ']') {
@@ -710,24 +710,17 @@ void genMips() {
           } else {
             regC = load(strs[4]);
           }
+          if (isChar(strs[2])) {
+            fprintf(mips, "li $k1, %d\n", strs[2][1]);
+          } else if (isNum(strs[2])) {
+            fprintf(mips, "li $k1, %d\n", stoi(strs[2]));
+          } else {
+            fprintf(mips, "li $k1, %d\n", getConst(strs[2]));
+          }
           if (strs[3] == "-" || strs[3] == "+") {
-            if (isChar(strs[2])) {
-              int ascii = strs[2][1];
-              fprintf(mips, "addi $%d, $%d, %d\n", regA, regC, strs[3] == "-" ? -ascii : ascii);
-            } else if (isNum(strs[2])) {
-              fprintf(mips, "addi $%d, $%d, %d\n", regA, regC, strs[3] == "-" ? -stoi(strs[2]) : stoi(strs[2]));
-            } else {
-              fprintf(mips, "addi $%d, $%d, %d\n", regA, regC, strs[3] == "-" ? -getConst(strs[2]) : getConst(strs[2]));
-            }
+            fprintf(mips, "%s $%d, $k1, $%d\n", strs[3] == "-" ? "sub" : "add", regA, regC);
           } else { // 乘除
-            if (isChar(strs[2])) {
-              int ascii = strs[2][1];
-              fprintf(mips, "%s $%d, $%d, %d\n", strs[3] == "*" ? "mul" : "div", regA, regC, ascii);
-            } else if (isNum(strs[2])) {
-              fprintf(mips, "%s $%d, $%d, %d\n", strs[3] == "*" ? "mul" : "div", regA, regC, stoi(strs[2]));
-            } else {
-              fprintf(mips, "%s $%d, $%d, %d\n", strs[3] == "*" ? "mul" : "div", regA, regC, getConst(strs[2]));
-            }
+            fprintf(mips, "%s $%d, $k1, $%d\n", strs[3] == "*" ? "mul" : "div", regA, regC);
           }
           if (isMid(strs[4])) {
             // 一定加载过了的，所以只需要找到它就可以了
@@ -826,8 +819,8 @@ void genMips() {
           sym = lookTable(a, 0);
           isGlobal = true;
           if (sym == NULL) {
-            printf("not find symbol\n");
-            exit(0);
+            fprintf(stderr, "not find symbol\n");
+            exit(1);
           }
         }
         int off = sym->spOff;
@@ -850,7 +843,10 @@ void genMips() {
         } else { // 标识符
           useK1 = true;
           if (isConst(b)) {
-            fprintf(mips, "sll $k1, %d, 2\n", getConst(b));
+            int reg = findNextReg();
+            fprintf(mips, "li $%d %d\n", reg, getConst(b));
+            fprintf(mips, "sll $k1, $%d, 2\n", reg);
+            regUse[reg - 8] = 0;
           } else {
             fprintf(mips, "sll $k1, $%d, 2\n", load(b));
             pop(b, false);
@@ -883,8 +879,10 @@ void genMips() {
         }
         if (useK1) {
           fprintf(mips, "sw $%d, %d($k1)\n", reg, off);
-        } else {
+        } else if (!isGlobal) {
           fprintf(mips, "sw $%d, %d($fp)\n", reg, off);
+        } else {
+          fprintf(mips, "sw $%d, %d($gp)\n", reg, off);
         }
         if (reg != 1) { // 标识符或者中间变量
           if (isMid(strs[2])) {
@@ -902,8 +900,8 @@ void genMips() {
           sym = lookTable(b, 0);
           isGlobal = true;
           if (sym == NULL) {
-            printf("not find symbol\n");
-            exit(0);
+            fprintf(stderr, "not find symbol\n");
+            exit(1);
           }
         }
         // 计算偏移
@@ -926,7 +924,10 @@ void genMips() {
         } else { // 标识符
           useK1 = true;
           if (isConst(c)) {
-            fprintf(mips, "sll $k1, %d, 2\n", getConst(c));
+            int reg = findNextReg();
+            fprintf(mips, "li $%d %d\n", reg, getConst(c));
+            fprintf(mips, "sll $k1, $%d, 2\n", reg);
+            regUse[reg - 8] = 0;
           } else {
             fprintf(mips, "sll $k1, $%d, 2\n", load(c));
             pop(c, false);
@@ -940,8 +941,10 @@ void genMips() {
         // lw
         if (useK1) {
           fprintf(mips, "lw $%d, %d($k1)\n", regA, off);
-        } else {
+        } else if (!isGlobal) {
           fprintf(mips, "lw $%d, %d($fp)\n", regA, off);
+        } else {
+          fprintf(mips, "lw $%d, %d($gp)\n", regA, off);
         }
       } else if (strs[2] == "RET") { // 获取函数返回值
         fprintf(mips, "move $%d, $v0\n", regA);

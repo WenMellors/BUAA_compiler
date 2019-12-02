@@ -96,6 +96,8 @@ list<struct Lexeme> lexcialParse () {
         }
         if (c == '\\') { // 不支持转义字符
           alexeme->value.push_back(c);
+        } else if (c == '\n') {
+          continue;
         }
         alexeme->value.push_back(c);
       }

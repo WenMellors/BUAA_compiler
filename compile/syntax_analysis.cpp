@@ -638,6 +638,7 @@ int expParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root) { // 表达�
         // 第一项且有输出
         if (leadOp != -1) {
           fprintf(out, "%dt = %c %dt\n", regCnt + 1, leadOp == 1 ? '+' : '-', regCnt);
+          regCnt++;
         }
       }
     }
