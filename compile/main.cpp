@@ -408,15 +408,63 @@ void genMips() {
         printf("bez error\n");
         exit(0);
       }
-      fprintf(mips, "beq $%d, $0, %s\n", loadMid(strs[1]), strs[2].data());
-      popMid(strs[1]);
+      int regA;
+      if (isChar(strs[1])) {
+        regA = findNextReg();
+        int ascii = strs[1][1];
+        fprintf(mips, "li $%d, %d\n", regA, ascii);
+      } else if (isConst(strs[1])) {
+        regA = findNextReg();
+        fprintf(mips, "li $%d, %d\n", regA, getConst(strs[1]));
+      } else if (isNum(strs[1])) {
+        regA = findNextReg();
+        fprintf(mips, "li $%d, %d\n", regA, stoi(strs[1]));
+      } else if (isMid(strs[1])) {
+        regA = loadMid(strs[1]);
+        midUse.insert({ strs[1], 1 });
+      } else {
+        regA = load(strs[1]);
+        setUse(strs[1]);
+      }
+      fprintf(mips, "beq $%d, $0, %s\n", regA, strs[2].data());
+      if (isChar(strs[1]) || isConst(strs[1]) || isNum(strs[1])) {
+        regUse[regA - 8] = 0;
+      } else if (isMid(strs[1])) {
+        popMid(strs[1]);
+      } else {
+        pop(strs[1], false);
+      }
     } else if (strs[0] == "$bnz") {
       if (strs.size() != 3) {
         printf("bnz error\n");
         exit(0);
       }
+      int regA;
+      if (isChar(strs[1])) {
+        regA = findNextReg();
+        int ascii = strs[1][1];
+        fprintf(mips, "li $%d, %d\n", regA, ascii);
+      } else if (isConst(strs[1])) {
+        regA = findNextReg();
+        fprintf(mips, "li $%d, %d\n", regA, getConst(strs[1]));
+      } else if (isNum(strs[1])) {
+        regA = findNextReg();
+        fprintf(mips, "li $%d, %d\n", regA, stoi(strs[1]));
+      } else if (isMid(strs[1])) {
+        regA = loadMid(strs[1]);
+        midUse.insert({ strs[1], 1 });
+      } else {
+        regA = load(strs[1]);
+        setUse(strs[1]);
+      }
       fprintf(mips, "bnq $%d, $0, %s\n", loadMid(strs[1]), strs[2].data());
-      popMid(strs[1]);
+      if (isChar(strs[1]) || isConst(strs[1]) || isNum(strs[1])) {
+        regUse[regA - 8] = 0;
+      } else if (isMid(strs[1])) {
+        popMid(strs[1]);
+      } else {
+        pop(strs[1], false);
+      }
     } else if (strs[0] == "$push") {
       if (strs.size() != 4){
         printf("error push\n");
