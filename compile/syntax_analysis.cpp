@@ -2,7 +2,7 @@
 #include <cstdio>
 
 
-FILE* err;
+// FILE* err;
 FILE* out;
 list<Symbol*> symbolTable[2];
 map<string, list<Symbol*>> symbolMap;
@@ -51,11 +51,11 @@ void printError(int line, char errorCode);
 
 void syntaxParse(list<struct Lexeme> tokenList) {
   SyntaxNode * root = new SyntaxNode("<程序>", "", "");
-  err = fopen("error.txt", "w");
+  // err = fopen("error.txt", "w");
   out  = fopen("semi-code.txt","w");
   buildSyntaxTree(tokenList ,root);
   fclose(out);
-  fclose(err);
+  // fclose(err);
   // out = fopen("output.txt", "w");
   // printTree(root);
   symbolMap.insert({ "global", symbolTable[0] });
@@ -968,7 +968,7 @@ void valuePrameterParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, S
     SyntaxNode* tempRoot = new SyntaxNode("<表达式>", "", "");
     root->appendChild(tempRoot);
     int res = expParse(iter, tempRoot);
-    fprintf(out, "$push %s %d\n", tempRoot->value.data(), ++cnt);
+    fprintf(out, "$push %s %d %d\n", tempRoot->value.data(), ++cnt, funcSymbol->remark.length());
     s.push_back(res == INT ? '0' : '1');
     if ((*iter)->token == "COMMA") {
       appendLeaf(iter, root);
@@ -1126,6 +1126,8 @@ int returnParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root) { // 返�
     } else {
       appendLeaf(iter, root); // )
     }
+  } else {
+    fprintf(out, "return\n");
   }
   return type;
 }
@@ -1209,7 +1211,7 @@ void voidFuncParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root) { // �
 }
 
 void printError(int line, char errorCode) {
-  fprintf(err, "%d %c\n", line, errorCode);
+  // fprintf(err, "%d %c\n", line, errorCode);
 }
 
 Symbol* lookTable(string name, int level) {

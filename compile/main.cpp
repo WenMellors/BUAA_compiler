@@ -15,13 +15,11 @@ FILE* mips;
 void genMips();
 void initData();
 void initVar(int level);
-void blockAnalysis();
 
 int main () {
   list<struct Lexeme> tokenList;
   tokenList = lexcialParse();
   syntaxParse(tokenList);
-  // blockAnalysis();
   mips = fopen("mips.txt", "w");
   initData();
   fprintf(mips, ".text\n");
@@ -129,8 +127,8 @@ int findNextReg() {
   }
   // 找了一圈发现没有未使用的寄存器，策略：先将全局变量移出寄存器堆，再将局部变量，最后是中间变量, 不可以把正在使用的寄存器换出去
   for(list<Symbol*>::iterator iter = symbolTable[0].begin(); iter != symbolTable[0].end(); iter++) {
-    printf("there is global var in reg! %s", (*iter)->name.data());
     if ((*iter)->regNo != 0 && (*iter)->use == 0) {
+      printf("there is global var in reg! %s", (*iter)->name.data());
       // 将其换出
       int res = (*iter)->regNo; // regNo 已经 + 8
       fprintf(mips, "sw $%d, %d($gp)\n", res, (*iter)->spOff); // 存到 gp
@@ -139,8 +137,8 @@ int findNextReg() {
     }
   }
   for(list<Symbol*>::iterator iter = symbolTable[1].begin(); iter != symbolTable[1].end(); iter++) {
-    printf("there is local var in reg! %s", (*iter)->name.data());
     if ((*iter)->regNo != 0 && (*iter)->use == 0) {
+      printf("there is local var in reg! %s", (*iter)->name.data());
       // 将其换出
       int res = (*iter)->regNo; // regNo 已经 + 8
       fprintf(mips, "sw $%d, %d($fp)\n", res, (*iter)->spOff); // 存到 fp
@@ -211,6 +209,7 @@ int load(string name) {
       exit(0);
     }
   }
+  sym->use++; // 引用次数加一
   if (sym->regNo != 0) { //TODO: 初始应该是 0
     // 已经被加载
     return sym->regNo;
@@ -244,7 +243,9 @@ void pop(string name, bool rewrite) {
       exit(0);
     }
   }
-  if (sym->regNo != 0) {
+  sym->use --;
+  // 还在被引用则不换出
+  if (sym->regNo != 0 && sym->use == 0) {
     // 将变量换出寄存器堆
     if (rewrite) { // 如果修改了就写回栈里
       if (level == 0) {
@@ -417,7 +418,7 @@ void genMips() {
       fprintf(mips, "bnq $%d, $0, %s\n", loadMid(strs[1]), strs[2].data());
       popMid(strs[1]);
     } else if (strs[0] == "$push") {
-      if (strs.size() != 3){
+      if (strs.size() != 4){
         printf("error push\n");
         exit(0);
       }
@@ -425,30 +426,29 @@ void genMips() {
         // 表达式为一个字符，存入 ASCII 码值
         int ascii = strs[1][1];
         fprintf(mips, "li $at, %d\n", ascii);
-        fprintf(mips, "sw $at, -%d($fp)\n", 4*stoi(strs[2]));
+        fprintf(mips, "sw $at, %d($sp)\n", 4*(stoi(strs[3]) - stoi(strs[2])));
       } else if (isNum(strs[1])) {
         // 表达式为一个整数
         fprintf(mips, "li $at, %d\n", stoi(strs[1])); // TODO: stoi 应该可以转负数吧
-        fprintf(mips, "sw $at, -%d($fp)\n", 4*stoi(strs[2]));
+        fprintf(mips, "sw $at, %d($sp)\n", 4*(stoi(strs[3]) - stoi(strs[2])));
       } else if (isMid(strs[1])) {
         // 中间变量
-        fprintf(mips, "sw $%d, -%d($fp)\n", loadMid(strs[1]), 4*stoi(strs[2]));
+        fprintf(mips, "sw $%d, %d($sp)\n", loadMid(strs[1]), 4*(stoi(strs[3]) - stoi(strs[2])));
         popMid(strs[1]);
       } else {
         // 标识符
         if (isConst(strs[1])) {
           fprintf(mips, "li $at, %d\n", getConst(strs[1]));
-          fprintf(mips, "sw $at, -%d($fp)\n", 4*stoi(strs[2]));
+          fprintf(mips, "sw $at, %d($sp)\n", 4*(stoi(strs[3]) - stoi(strs[2])));
         } else {
           int reg = load(strs[1]);
-          fprintf(mips, "sw $%d, -%d($fp)\n", reg, 4*stoi(strs[2]));
-          pop(strs[2], false);
+          fprintf(mips, "sw $%d, %d($sp)\n", reg, 4*(stoi(strs[3]) - stoi(strs[2])));
+          pop(strs[1], false);
         }
       }
     } else if (strs[0] == "$save") {
-      // 保存现场，fp 指向 sp，自减 sp
+      // 保存现场，自减 sp
       saveAll();
-      fprintf(mips, "move $fp, $sp\n"); // 现在的 sp 为下一个函数的栈帧开始
       Symbol* sym = lookTable(strs[2], 0);
       if (sym == NULL) {
         printf("use func error\n");
@@ -457,6 +457,13 @@ void genMips() {
       int paraLen = sym->remark.length();
       fprintf(mips, "addi $sp, $sp, -%d\n", paraLen * 4);
     } else if (strs[0] == "$call") {
+      Symbol* sym = lookTable(strs[1], 0);
+      if (sym == NULL) {
+        printf("use func error\n");
+        exit(0);
+      }
+      int paraLen = sym->remark.length();
+      fprintf(mips, "addi $fp, $sp, %d\n", paraLen*4); // update fp
       fprintf(mips, "jal %s\n", strs[1].data());
       restoreAll();
     } else if (strs[0] == "scanf") {
@@ -748,6 +755,7 @@ void genMips() {
         // b 可以为中间变量或者 expValue
         if (isMid(strs[3])) {
           fprintf(mips, "%s $%d, $0, $%d\n", strs[2] == "+" ? "add" : "sub", regA, loadMid(strs[3]));
+          popMid(strs[3]);
         } else if (isChar(strs[3])) {
           int ascii = strs[3][1];
           fprintf(mips, "addi $%d, $0, %d\n", regA, strs[2] == "+" ? ascii : -ascii);
@@ -765,8 +773,10 @@ void genMips() {
         string b = strs[0].substr(strs[0].find('[') + 1, strs[0].length() - strs[0].find('[') - 2);
         string a = strs[0].substr(0, strs[0].find('['));
         Symbol* sym = lookTable(a, 1);
+        bool isGlobal = false;
         if (sym == NULL) {
           sym = lookTable(a, 0);
+          isGlobal = true;
           if (sym == NULL) {
             printf("not find symbol\n");
             exit(0);
@@ -783,16 +793,25 @@ void genMips() {
         } else if (isMid(b)) {
           useK1 = true;
           fprintf(mips, "sll $k1, $%d, 2\n", loadMid(b));
-          fprintf(mips, "add $k1, $fp, $k1\n"); // 修改起始地址
+          popMid(b);
+          if (isGlobal) {
+            fprintf(mips, "add $k1, $gp, $k1\n"); // 修改起始地址
+          } else {
+            fprintf(mips, "add $k1, $fp, $k1\n"); // 修改起始地址
+          }
         } else { // 标识符
           useK1 = true;
           if (isConst(b)) {
             fprintf(mips, "sll $k1, %d, 2\n", getConst(b));
           } else {
-            fprintf(mips, "sllv $k1, $%d, 2\n", load(b));
+            fprintf(mips, "sll $k1, $%d, 2\n", load(b));
             pop(b, false);
           }
-          fprintf(mips, "add $k1, $fp, $k1\n"); // 修改起始地址
+          if (isGlobal) {
+            fprintf(mips, "add $k1, $gp, $k1\n"); // 修改起始地址
+          } else {
+            fprintf(mips, "add $k1, $fp, $k1\n"); // 修改起始地址
+          }
         }
         // 计算要写入的值
         int reg = 0;
@@ -827,11 +846,13 @@ void genMips() {
           }
         }
       } else if (strs[2].back() == ']') { // 取出数组的值 a = b[c]
-        string c = strs[2].substr(strs[0].find('[') + 1, strs[0].length() - strs[0].find('[') - 2);
-        string b = strs[2].substr(0, strs[0].find('['));
+        string c = strs[2].substr(strs[2].find('[') + 1, strs[2].length() - strs[2].find('[') - 2);
+        string b = strs[2].substr(0, strs[2].find('['));
         Symbol* sym = lookTable(b, 1);
+        bool isGlobal = false;
         if (sym == NULL) {
           sym = lookTable(b, 0);
+          isGlobal = true;
           if (sym == NULL) {
             printf("not find symbol\n");
             exit(0);
@@ -848,16 +869,25 @@ void genMips() {
         } else if (isMid(c)) {
           useK1 = true;
           fprintf(mips, "sll $k1, $%d, 2\n", loadMid(c));
-          fprintf(mips, "add $k1, $fp, $k1\n"); // 修改起始地址
+          popMid(c);
+          if (isGlobal) {
+            fprintf(mips, "add $k1, $gp, $k1\n"); // 修改起始地址
+          } else {
+            fprintf(mips, "add $k1, $fp, $k1\n"); // 修改起始地址
+          }
         } else { // 标识符
           useK1 = true;
           if (isConst(c)) {
             fprintf(mips, "sll $k1, %d, 2\n", getConst(c));
           } else {
-            fprintf(mips, "sllv $k1, $%d, 2\n", load(c));
+            fprintf(mips, "sll $k1, $%d, 2\n", load(c));
             pop(c, false);
           }
-          fprintf(mips, "add $k1, $fp, $k1\n"); // 修改起始地址
+          if (isGlobal) {
+            fprintf(mips, "add $k1, $gp, $k1\n"); // 修改起始地址
+          } else {
+            fprintf(mips, "add $k1, $fp, $k1\n"); // 修改起始地址
+          }
         }
         // lw
         if (useK1) {
@@ -870,6 +900,7 @@ void genMips() {
       } else { // a = b
         if (isMid(strs[2])) {
           fprintf(mips, "move $%d, $%d\n", regA, loadMid(strs[2]));
+          popMid(strs[2]);
         } else if (isChar(strs[2])) {
           int ascii = strs[2][1];
           fprintf(mips, "li $%d, %d\n", regA, ascii);
@@ -892,32 +923,6 @@ void genMips() {
         // 中间变量
         midUse.erase(strs[0]);
       }
-    }
-  }
-}
-
-void blockAnalysis() {
-  int lineNo = 0;
-  vector<struct Block*> blocks;
-  vector<int> entrys; // 存储入口语句以及结束语句, 应该时递增的
-  ifstream mid;
-  mid.open("semi-code.txt");
-  while(!mid.eof()) {
-    string line;
-    getline(mid, line); // 按行读取
-    lineNo++;
-    if (line == "") {
-      return;
-    }
-    vector<string> strs = split(line, ' ');
-    if (strs[0] == "int" || strs[0] == "void" || strs[0] == "char") {
-      // 函数定义，函数入口
-      entrys.push_back(lineNo);
-    } else if (strs[0] == "$bne" || strs[0] == "$beq" || strs[0] == "$bge" || strs[0] == "$bgt" || strs[0] == "$blt" || strs[0] == "$ble") {
-      entrys.push_back(lineNo);
-      entrys.push_back(lineNo + 1);
-    } else if (strs[0] == "return") {
-      entrys.push_back(lineNo);
     }
   }
 }
