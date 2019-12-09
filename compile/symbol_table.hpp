@@ -10,14 +10,18 @@ struct Symbol {
     this->regNo = 0;
     this->spOff = 0;
     this->use = 0;
+    this->weight = 0;
+    this->distributed = false; // indicate the var be distributed a reg or not
   }
   string name;
   int type; // 0 or 1, 0: int, 1: char 
   int kind;
   string remark; // 001 -> int int char, indicate func parameter, and Array use remark to store length, and const is the value
   int regNo; // 被分配到的寄存器
+  bool distributed;
   int spOff; // 被分配到的 fp 偏移，如果是全局变量的话，就是 gp
   int use;
+  int weight;
 };
 
 #define ARRAY 0
@@ -26,6 +30,9 @@ struct Symbol {
 #define FUNC 3
 #define VOID 4
 #define Para 5
+
+#define CIRCLE_WEIGHT 100
+#define WEIGHT 1 
 
 #define INT 0
 #define CHAR 1

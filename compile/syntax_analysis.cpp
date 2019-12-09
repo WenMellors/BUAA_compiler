@@ -10,6 +10,7 @@ map<int, string> strMap;
 int regCnt; // use for print 1t,2t,3t
 int labelCnt; 
 int strCnt;
+int isCircle;
 
 void buildSyntaxTree(list<struct Lexeme> tokenList, SyntaxNode * root);
 void appendLeaf(list<struct Lexeme>::iterator* iter, SyntaxNode* root);
@@ -743,6 +744,7 @@ int factorParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root) { // 因�
           printError((*iter)->lineNumber, 'c');
         }
       }
+      aSymbol->weight += isCircle != 0 ? CIRCLE_WEIGHT : WEIGHT;
       type = aSymbol == NULL ? INT : aSymbol->type;
       string iden = (*iter)->value;
       appendLeaf(iter, root); // IDENFR
@@ -793,6 +795,7 @@ int factorParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root) { // 因�
 
 bool circleParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type){ // 循环
   bool has = false;
+  isCircle++;
   if ((*iter)->token == "WHILETK") {
     appendLeaf(iter, root); // while
     int whileLabel = ++labelCnt;
@@ -848,9 +851,12 @@ bool circleParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type
     if ((*iter)->token != "IDENFR") {
       exit(-1);
     }
-    if (lookTable((*iter)->value, 1) == NULL && lookTable((*iter)->value, 0) == NULL) {
+    Symbol* aSymbol = lookTable((*iter)->value, 1);
+    if (aSymbol == NULL) {
+      aSymbol = lookTable((*iter)->value, 0);
       printError((*iter)->lineNumber, 'c');
     }
+    aSymbol->weight += CIRCLE_WEIGHT;
     string iden = (*iter)->value;
     appendLeaf(iter, root); // IDENFR
     if ((*iter)->token != "ASSIGN") {
@@ -880,9 +886,12 @@ bool circleParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type
     if ((*iter)->token != "IDENFR") {
       exit(-1);
     }
-    if (lookTable((*iter)->value, 1) == NULL && lookTable((*iter)->value, 0) == NULL) {
+    aSymbol = lookTable((*iter)->value, 1);
+    if (aSymbol == NULL) {
+      aSymbol = lookTable((*iter)->value, 0);
       printError((*iter)->lineNumber, 'c');
     }
+    aSymbol->weight += CIRCLE_WEIGHT;
     iden = (*iter)->value;
     appendLeaf(iter, root); // IDENFR
     if ((*iter)->token != "ASSIGN") {
@@ -892,9 +901,12 @@ bool circleParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type
     if ((*iter)->token != "IDENFR") {
       exit(-1);
     }
-    if (lookTable((*iter)->value, 1) == NULL && lookTable((*iter)->value, 0) == NULL) {
+    aSymbol = lookTable((*iter)->value, 1);
+    if (aSymbol == NULL) {
+      aSymbol = lookTable((*iter)->value, 0);
       printError((*iter)->lineNumber, 'c');
     }
+    aSymbol->weight += CIRCLE_WEIGHT;
     string iden2 = (*iter)->value;
     appendLeaf(iter, root); // IDENFR
     if ((*iter)->token != "PLUS" && (*iter)->token != "MINU") {
@@ -918,6 +930,7 @@ bool circleParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type
     fprintf(out, "label%d:\n", endFor);
   }
   // 因为不知道 while for 语句会不会执行故无法判断有无 return
+  isCircle--;
   return has;
 }
 
@@ -995,6 +1008,7 @@ void assignParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root) { // 赋
       printError((*iter)->lineNumber, 'c');
     }
   }
+  aSymbol->weight += isCircle ? CIRCLE_WEIGHT : WEIGHT;
   if (aSymbol->kind == CONST) {
     printError((*iter)->lineNumber, 'j');
   }
@@ -1049,6 +1063,7 @@ void scanfParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root) { // 读�
         printError((*iter)->lineNumber, 'c');
       }
     }
+    iden->weight = isCircle ? CIRCLE_WEIGHT : WEIGHT;
     if (iden != NULL) {
       if (iden->type == INT) {
         fprintf(out, "scanf int %s\n", iden->name.data());

@@ -1,13 +1,16 @@
 #include <string>
 #include <vector>
+#include <algorithm>
 #include <sstream>
 #include <fstream>
 #include "lexical_analysis.hpp"
 #include "syntax_analysis.hpp"
 using namespace std;
 
-int regUse[18]; // + 8 使用
-int nextReg;
+vector<int> globalReg = {19, 20, 21, 22, 23, 24, 25};
+vector<int> localReg = {12, 13, 14, 15, 16, 17, 18};
+vector<int> tempReg = {8, 9, 10, 11};
+vector<int> saveReg;
 map<string, int> midVar; // 存放中间变量被分配到的寄存器, 如果对应值为负，则为其在 DM 的偏移的负数
 map<string, int> midUse; // 正在使用中的中间变量，不可以替换
 int dmOff;
@@ -43,21 +46,28 @@ void initData() {
   fprintf(mips, "d: .align 2\n");
 }
 
+bool sortFunction(int i, int j) {
+  return i>j;
+}
+
 // 为函数内的变量分配地址
 void initVar(int level) {
   // 并不是所有的 symbol 都是变量
   int length = 0;
   int offset = -4;
   list<Symbol*>::iterator iter = symbolTable[level].begin();
+  vector<int> weights;
   while(iter != symbolTable[level].end()) {
     if ((*iter)->kind == VAR) {
       (*iter)->spOff = offset; // 标记每个变量到 fp 的偏移，如果是全局变量就是 gp
       offset -= 4;
       length++;
+      weights.push_back((*iter)->weight);
     } else if ((*iter)->kind == Para) {
       // 形参的 sp 由调用方减去，但是这里得记下他的偏移
       (*iter)->spOff = offset;
       offset -= 4;
+      weights.push_back((*iter)->weight);
     } else if ((*iter)->kind == ARRAY) {
       // 坚信你不会爆栈
       int arrSize = stoi((*iter)->remark);
@@ -71,6 +81,85 @@ void initVar(int level) {
   if (length != 0) {
     fprintf(mips, "addi $sp, $sp, -%d\n", length*4); // sp 自减
   } 
+  sort(weights.begin(), weights.end(), sortFunction);
+  // assign reg to var and para
+  iter = symbolTable[level].begin();
+  int next = 0;
+  if (level == 0) {
+    while(iter != symbolTable[level].end()) {
+      if ((*iter)->kind == VAR) {
+        if (weights.size() <= globalReg.size()) {
+          (*iter)->regNo = globalReg[next];
+          (*iter)->distributed = true;
+          next++;
+        } else {
+          if (weights[globalReg.size()] <= (*iter)->weight && next < globalReg.size()) {
+            (*iter)->regNo = globalReg[next];
+            (*iter)->distributed = true;
+            next++;
+          }
+        }
+      } else if ((*iter)->kind == Para) {
+        // 需要加载初始化
+        if (weights.size() <= globalReg.size()) {
+          (*iter)->regNo = globalReg[next];
+          (*iter)->distributed = true;
+          fprintf(mips, "lw $%d, %d($gp)\n", (*iter)->regNo, (*iter)->spOff);
+          next++;
+        } else {
+          if (weights[globalReg.size()] <= (*iter)->weight && next < globalReg.size()) {
+            (*iter)->regNo = globalReg[next];
+            (*iter)->distributed = true;
+            fprintf(mips, "lw $%d, %d($gp)\n", (*iter)->regNo, (*iter)->spOff);
+            next++;
+          }
+        }
+      }
+      iter++;
+    }
+    // if there is still any globalReg not be distributed, give the reg to localReg
+    while (next < globalReg.size()) {
+      localReg.push_back(globalReg[next]);
+      next++;
+    }
+  } else {
+    while(iter != symbolTable[level].end()) {
+      if ((*iter)->kind == VAR) {
+        if (weights.size() <= localReg.size()) {
+          (*iter)->regNo = localReg[next];
+          (*iter)->distributed = true;
+          next++;
+        } else {
+          if (weights[localReg.size()] <= (*iter)->weight && next < localReg.size()) {
+            (*iter)->regNo = localReg[next];
+            (*iter)->distributed = true;
+            next++;
+          }
+        }
+      } else if ((*iter)->kind == Para) {
+        // 需要加载初始化
+        if (weights.size() <= globalReg.size()) {
+          (*iter)->regNo = globalReg[next];
+          (*iter)->distributed = true;
+          fprintf(mips, "lw $%d, %d($fp)\n", (*iter)->regNo, (*iter)->spOff);
+          next++;
+        } else {
+          if (weights[globalReg.size()] <= (*iter)->weight && next < globalReg.size()) {
+            (*iter)->regNo = globalReg[next];
+            (*iter)->distributed = true;
+            fprintf(mips, "lw $%d, %d($fp)\n", (*iter)->regNo, (*iter)->spOff);
+            next++;
+          }
+        }
+      }
+      iter++;
+    }
+    // if there is still any localReg not be distributed, give the reg to tempReg
+    while (next < localReg.size()) {
+      tempReg.push_back(localReg[next]);
+      next++;
+    }
+  }
 }
 
 vector<string> split(string s , char delim) {
@@ -105,47 +194,13 @@ bool isMid(string s) {
   return isNum(s.substr(0, s.length() - 1)) && s.back() == 't';
 }
 
-int findNextReg() {
-  for (int i = 0; i < 18; i++) {
-    if (regUse[nextReg] == 0) {
-      // 找到一个未使用的寄存器，棒！
-      regUse[nextReg] = 1;
-      int res = nextReg + 8; // 要加 8 位偏移
-      if (nextReg == 17) {
-        nextReg = 0;
-      } else {
-        nextReg++;
-      }
-      return res;
-    } else {
-      if (nextReg == 17) {
-        nextReg = 0;
-      } else {
-        nextReg++;
-      }
-    }
+int findNextReg() { // find a reg for temp var
+  if (!tempReg.empty()) {
+    int reg = tempReg.back();
+    tempReg.pop_back();
+    return reg;
   }
-  // 找了一圈发现没有未使用的寄存器，策略：先将全局变量移出寄存器堆，再将局部变量，最后是中间变量, 不可以把正在使用的寄存器换出去
-  for(list<Symbol*>::iterator iter = symbolTable[0].begin(); iter != symbolTable[0].end(); iter++) {
-    if ((*iter)->regNo != 0 && (*iter)->use == 0) {
-      printf("there is global var in reg! %s", (*iter)->name.data());
-      // 将其换出
-      int res = (*iter)->regNo; // regNo 已经 + 8
-      fprintf(mips, "sw $%d, %d($gp)\n", res, (*iter)->spOff); // 存到 gp
-      (*iter)->regNo = 0;
-      return res;
-    }
-  }
-  for(list<Symbol*>::iterator iter = symbolTable[1].begin(); iter != symbolTable[1].end(); iter++) {
-    if ((*iter)->regNo != 0 && (*iter)->use == 0) {
-      printf("there is local var in reg! %s", (*iter)->name.data());
-      // 将其换出
-      int res = (*iter)->regNo; // regNo 已经 + 8
-      fprintf(mips, "sw $%d, %d($fp)\n", res, (*iter)->spOff); // 存到 fp
-      (*iter)->regNo = 0;
-      return res;
-    }
-  }
+  // 没有空闲寄存器了
   for(map<string, int>::iterator iter = midVar.begin(); iter != midVar.end(); iter++) {
     if (iter->second > 0 && midUse.find(iter->first) == midUse.end()) {
       // 小于 0 表示在 DM 里面，不可能为 0，且该中间变量没有正在被使用
@@ -197,7 +252,7 @@ int getConst(string name) {
   }
 }
 
-int load(string name) {
+int load(string name) { // load a var
   // 检查是否装载，如果没有的话，就装载
   int level = 1;
   Symbol* sym = lookTable(name, 1);
@@ -209,12 +264,12 @@ int load(string name) {
       exit(1);
     }
   }
-  sym->use++; // 引用次数加一
-  if (sym->regNo != 0) { //TODO: 初始应该是 0
-    // 已经被加载
+  if (sym->regNo != 0) {
+    // 已经被分配了寄存器的
     return sym->regNo;
   } else {
-    // 要加载
+    // 当作中间变量处理，只是需要注意一下换出写回
+    sym->use++; // 引用次数加一
     int reg = findNextReg();
     if (reg == -1) {
       fprintf(stderr, "no enough reg\n");
@@ -232,7 +287,7 @@ int load(string name) {
   }
 }
 
-void pop(string name, bool rewrite) {
+void pop(string name, bool rewrite) { // 如果变量没有被分配寄存器，那么该寄存器将会被归还到中间寄存器池，并写回栈
   int level = 1;
   Symbol* sym = lookTable(name, 1);
   if (sym == NULL) {
@@ -243,9 +298,12 @@ void pop(string name, bool rewrite) {
       exit(1);
     }
   }
+  if (sym->distributed) {
+    return;
+  }
   sym->use --;
   // 还在被引用则不换出
-  if (sym->regNo != 0 && sym->use == 0) {
+  if (sym->use == 0 && sym->regNo != 0) {
     // 将变量换出寄存器堆
     if (rewrite) { // 如果修改了就写回栈里
       if (level == 0) {
@@ -256,9 +314,10 @@ void pop(string name, bool rewrite) {
         fprintf(mips, "sw $%d, %d($fp)\n", sym->regNo, sym->spOff);
       }
     }
-    regUse[sym->regNo - 8] = 0;
-    sym->regNo = 0;
+    // 归还借用的寄存器
+    tempReg.push_back(sym->regNo);
     sym->use = 0;
+    sym->regNo = 0;
   }
 }
 
@@ -284,11 +343,28 @@ int loadMid(string name) {
 }
 
 void saveAll() {
-  // t0-t9, s0-s7, fp, ra 一共 20 个
+  // fp, ra 一定要保存，局部变量以及中间变量在寄存器里面的需要保存
+  int n = 0;
+  saveReg.clear();
+  for(map<string, int>::iterator iter = midVar.begin(); iter != midVar.end(); iter++) {
+    if (iter->second > 0) {
+      // 在寄存器堆里面的中间变量
+      saveReg.push_back(iter->second);
+      n++;
+    }
+  }
+  for (list<Symbol*>::iterator iter = symbolTable[1].begin(); iter != symbolTable[1].end(); iter++) {
+    if ((*iter)->regNo != 0) {
+      // 在寄存器堆里面的局部变量
+      saveReg.push_back((*iter)->regNo);
+      n++;
+    }
+  }
+  n+=2;
   int off = 0;
-  fprintf(mips, "addi $sp, $sp, -80\n");
-  for(int i = 8; i <= 25; i++) {
-    fprintf(mips, "sw $%d, %d($sp)\n", i, off);
+  fprintf(mips, "addi $sp, $sp, -%d\n", n*4);
+  for(int i = 0; i < saveReg.size(); i++) {
+    fprintf(mips, "sw $%d, %d($sp)\n", saveReg[i], off);
     off +=4;
   }
   fprintf(mips, "sw $fp, %d($sp)\n", off);
@@ -298,14 +374,15 @@ void saveAll() {
 
 void restoreAll() {
   int off = 0;
-  for(int i = 8; i <= 25; i++) {
-    fprintf(mips, "lw $%d, %d($sp)\n", i, off);
+  int n = saveReg.size() + 2;
+  for(int i = 0; i < saveReg.size(); i++) {
+    fprintf(mips, "lw $%d, %d($sp)\n", saveReg[i], off);
     off +=4;
   }
   fprintf(mips, "lw $fp, %d($sp)\n", off);
   off+=4;
   fprintf(mips, "lw $ra, %d($sp)\n", off);
-  fprintf(mips, "addi $sp, $sp, 80\n"); // 出栈
+  fprintf(mips, "addi $sp, $sp, %d\n", n*4); // 出栈
 }
 
 void popStack() {
@@ -317,11 +394,6 @@ void popStack() {
     } else if ((*iter)->kind == ARRAY) {
       cnt += stoi((*iter)->remark);
     }
-    if ((*iter)->regNo != 0) {
-      // 取消对寄存器的占用
-      regUse[(*iter)->regNo - 8] = 0;
-      (*iter)->regNo = 0; // 虽然不用也可以
-    }
   }
   if (cnt != 0) {
     fprintf(mips, "addi $sp, $sp, %d\n", cnt * 4);
@@ -329,44 +401,20 @@ void popStack() {
 }
 
 void popMid(string name) {
-  // 策略：一个中间变量一旦被用了，那么它就可以走了
+  // 将一个中间变量废弃
   if (midVar.find(name) == midVar.end()) {
     return;
   }
   int reg = midVar.at(name);
   if (reg > 0) {
     // 设置对应的寄存器为可用
-    regUse[reg - 8] = 0;
+    tempReg.push_back(reg);
   }
   midVar.erase(name);
   midUse.erase(name);
 }
 
-void setUse(string name) {
-  Symbol* sym = lookTable(name, 1);
-  if (sym == NULL) {
-    sym = lookTable(name, 0);
-    if (sym == NULL) {
-      fprintf(stderr, "not find symbol\n");
-      exit(1);
-    }
-  }
-  sym->use = 1;
-}
-
-void freeUse(string name) {
-  Symbol* sym = lookTable(name, 1);
-  if (sym == NULL) {
-    sym = lookTable(name, 0);
-    if (sym == NULL) {
-      fprintf(stderr, "not find symbol\n");
-      exit(1);
-    }
-  }
-  sym->use = 0;
-}
-
-void popAllVar() { // 将所有变量换出去
+/*void popAllVar() { // 将所有变量换出去
   for(list<Symbol*>::iterator iter = symbolTable[0].begin(); iter != symbolTable[0].end(); iter++) {
     if ((*iter)->regNo != 0 && (*iter)->use == 0) {
       // 将其换出
@@ -383,7 +431,7 @@ void popAllVar() { // 将所有变量换出去
       (*iter)->regNo = 0;
     }
   }
-}
+}*/
 
 void genMips() {
   ifstream mid;
@@ -424,11 +472,10 @@ void genMips() {
         midUse.insert({ strs[1], 1 });
       } else {
         regA = load(strs[1]);
-        setUse(strs[1]);
       }
       fprintf(mips, "beq $%d, $0, %s\n", regA, strs[2].data());
       if (isChar(strs[1]) || isConst(strs[1]) || isNum(strs[1])) {
-        regUse[regA - 8] = 0;
+        tempReg.push_back(regA);
       } else if (isMid(strs[1])) {
         popMid(strs[1]);
       } else {
@@ -455,11 +502,10 @@ void genMips() {
         midUse.insert({ strs[1], 1 });
       } else {
         regA = load(strs[1]);
-        setUse(strs[1]);
       }
       fprintf(mips, "bnq $%d, $0, %s\n", loadMid(strs[1]), strs[2].data());
       if (isChar(strs[1]) || isConst(strs[1]) || isNum(strs[1])) {
-        regUse[regA - 8] = 0;
+        tempReg.push_back(regA);
       } else if (isMid(strs[1])) {
         popMid(strs[1]);
       } else {
@@ -558,7 +604,8 @@ void genMips() {
           if (isConst(strs[2])) {
             fprintf(mips, "li $a0, %d\n", getConst(strs[2]));
           } else {
-            fprintf(mips, "move $a0, $%d\n", load(strs[2]));
+            int reg = load(strs[2]);
+            fprintf(mips, "move $a0, $%d\n", reg);
             pop(strs[2], false);
           }
         }
@@ -599,8 +646,9 @@ void genMips() {
       fprintf(mips, "%s:\n", strs[1].data()); // 函数标签
       // 加载局部符号表，并分配 sp 空间
       symbolTable[1] = symbolMap[strs[1]];
+      // reset tempReg
+      tempReg = {8, 9, 10, 11};
       initVar(1);
-      popAllVar();
     } else if (strs[0] == "$bne" || strs[0] == "$beq" || strs[0] == "$bge" || strs[0] == "$bgt" || strs[0] == "$blt" || strs[0] == "$ble") {
       int regA;
       int regB;
@@ -619,7 +667,6 @@ void genMips() {
         midUse.insert({ strs[1], 1 });
       } else {
         regA = load(strs[1]);
-        setUse(strs[1]);
       }
       if (isChar(strs[2])) {
         regB = findNextReg();
@@ -640,14 +687,14 @@ void genMips() {
       if (isMid(strs[1])) { // 中间变量使用结束，报废
         popMid(strs[1]);
       } else if (isChar(strs[1]) || isConst(strs[1]) || isNum(strs[1])) {
-        regUse[regA - 8] = 0;
+        tempReg.push_back(regA);
       } else {
         pop(strs[1], false);
       }
       if (isMid(strs[2])) {
         popMid(strs[2]);
       } else if (isChar(strs[2]) || isConst(strs[2]) || isNum(strs[2])) {
-        regUse[regB - 8] = 0;
+        tempReg.push_back(regB);
       } else {
         pop(strs[2], false);
       }
@@ -660,7 +707,6 @@ void genMips() {
       if (!isMid(strs[0]) && strs[0].back() != ']') {
         // 单个标识符
         regA = load(strs[0]); // 不能对 const 进行赋值，所以这个肯定不是 isConst
-        setUse(strs[0]);
       } else if (isMid(strs[0])){
         // 中间变量
         regA = findNextReg();
@@ -769,7 +815,6 @@ void genMips() {
             midUse.insert({ strs[2], 1 });
           } else {
             regB = load(strs[2]);
-            setUse(strs[2]);
           }
           if (isMid(strs[4])) {
             regC = loadMid(strs[4]);
@@ -846,7 +891,7 @@ void genMips() {
             int reg = findNextReg();
             fprintf(mips, "li $%d %d\n", reg, getConst(b));
             fprintf(mips, "sll $k1, $%d, 2\n", reg);
-            regUse[reg - 8] = 0;
+            tempReg.push_back(reg);
           } else {
             fprintf(mips, "sll $k1, $%d, 2\n", load(b));
             pop(b, false);
@@ -927,7 +972,7 @@ void genMips() {
             int reg = findNextReg();
             fprintf(mips, "li $%d %d\n", reg, getConst(c));
             fprintf(mips, "sll $k1, $%d, 2\n", reg);
-            regUse[reg - 8] = 0;
+            tempReg.push_back(reg);
           } else {
             fprintf(mips, "sll $k1, $%d, 2\n", load(c));
             pop(c, false);
