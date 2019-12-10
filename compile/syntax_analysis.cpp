@@ -1,5 +1,6 @@
 #include "syntax_analysis.hpp"
 #include <cstdio>
+#include <vector>
 
 
 // FILE* err;
@@ -978,17 +979,22 @@ void valuePrameterParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, S
   }
   string s;
   int cnt = 0;
+  // push 一起输出
+  vector<SyntaxNode*> tempVec;
   while (true) {
     SyntaxNode* tempRoot = new SyntaxNode("<表达式>", "", "");
     root->appendChild(tempRoot);
     int res = expParse(iter, tempRoot);
-    fprintf(out, "$push %s %d %d\n", tempRoot->value.data(), ++cnt, funcSymbol->remark.length());
+    tempVec.push_back(tempRoot);
     s.push_back(res == INT ? '0' : '1');
     if ((*iter)->token == "COMMA") {
       appendLeaf(iter, root);
     } else {
       break;
     }
+  }
+  for (int i = 0; i < tempVec.size(); i++) {
+    fprintf(out, "$push %s %d %d %s\n", tempVec[i]->value.data(), ++cnt, funcSymbol->remark.length(), funcSymbol->name.data());
   }
   if (funcSymbol == NULL) {
     return;

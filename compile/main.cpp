@@ -13,11 +13,14 @@ vector<int> tempReg = {8, 9, 10, 11};
 vector<int> saveReg;
 map<string, int> midVar; // 存放中间变量被分配到的寄存器, 如果对应值为负，则为其在 DM 的偏移的负数
 map<string, int> midUse; // 正在使用中的中间变量，不可以替换
+map<string, vector<int>> funcMapReg; // 记录这个函数会分配哪些局部寄存器
+int paraLen;
+int nextReg;
 int dmOff;
 FILE* mips;
 void genMips();
 void initData();
-void initVar(int level);
+void initVar(int level, string name);
 
 int main () {
   list<struct Lexeme> tokenList;
@@ -29,7 +32,7 @@ int main () {
   fprintf(mips, "la $k0, d\n");
   fprintf(mips, "move $gp, $sp\n");
   symbolTable[0] = symbolMap.at("global"); // load global Table
-  initVar(0);
+  initVar(0, "global");
   fprintf(mips, "move $fp, $sp\n"); // 初始化栈帧
   fprintf(mips, "jal main\n"); // 跳转到 main 函数
   fprintf(mips, "li $v0, 10\n");
@@ -51,23 +54,38 @@ bool sortFunction(int i, int j) {
 }
 
 // 为函数内的变量分配地址
-void initVar(int level) {
+void initVar(int level, string name) {
   // 并不是所有的 symbol 都是变量
   int length = 0;
   int offset = -4;
   list<Symbol*>::iterator iter = symbolTable[level].begin();
   vector<int> weights;
+  map<int, vector<Symbol*>> weightToSymbol;
   while(iter != symbolTable[level].end()) {
     if ((*iter)->kind == VAR) {
       (*iter)->spOff = offset; // 标记每个变量到 fp 的偏移，如果是全局变量就是 gp
       offset -= 4;
       length++;
       weights.push_back((*iter)->weight);
+      if (weightToSymbol.find((*iter)->weight) == weightToSymbol.end()) {
+        vector<Symbol*> newVec;
+        newVec.push_back(*iter);
+        weightToSymbol.insert({(*iter)->weight, newVec});
+      } else {
+        weightToSymbol.at((*iter)->weight).push_back(*iter);
+      }
     } else if ((*iter)->kind == Para) {
       // 形参的 sp 由调用方减去，但是这里得记下他的偏移
       (*iter)->spOff = offset;
       offset -= 4;
       weights.push_back((*iter)->weight);
+      if (weightToSymbol.find((*iter)->weight) == weightToSymbol.end()) {
+        vector<Symbol*> newVec;
+        newVec.push_back(*iter);
+        weightToSymbol.insert({(*iter)->weight, newVec});
+      } else {
+        weightToSymbol.at((*iter)->weight).push_back(*iter);
+      }
     } else if ((*iter)->kind == ARRAY) {
       // 坚信你不会爆栈
       int arrSize = stoi((*iter)->remark);
@@ -83,82 +101,42 @@ void initVar(int level) {
   } 
   sort(weights.begin(), weights.end(), sortFunction);
   // assign reg to var and para
-  iter = symbolTable[level].begin();
-  int next = 0;
-  if (level == 0) {
-    while(iter != symbolTable[level].end()) {
-      if ((*iter)->kind == VAR) {
-        if (weights.size() <= globalReg.size()) {
-          (*iter)->regNo = globalReg[next];
-          (*iter)->distributed = true;
-          next++;
-        } else {
-          if (weights[globalReg.size()] <= (*iter)->weight && next < globalReg.size()) {
-            (*iter)->regNo = globalReg[next];
-            (*iter)->distributed = true;
-            next++;
-          }
-        }
-      } else if ((*iter)->kind == Para) {
-        // 需要加载初始化
-        if (weights.size() <= globalReg.size()) {
-          (*iter)->regNo = globalReg[next];
-          (*iter)->distributed = true;
-          fprintf(mips, "lw $%d, %d($gp)\n", (*iter)->regNo, (*iter)->spOff);
-          next++;
-        } else {
-          if (weights[globalReg.size()] <= (*iter)->weight && next < globalReg.size()) {
-            (*iter)->regNo = globalReg[next];
-            (*iter)->distributed = true;
-            fprintf(mips, "lw $%d, %d($gp)\n", (*iter)->regNo, (*iter)->spOff);
-            next++;
-          }
-        }
-      }
-      iter++;
+  vector<int> distributeVec;
+  int next = level == 0 ? 0 : nextReg;
+  for (int i = 0; i < weights.size(); i++) {
+    if (weights[i] == 0) {
+      break; // 0 needn't be distribute
     }
-    // if there is still any globalReg not be distributed, give the reg to localReg
+    if (level == 0 && next < globalReg.size()) {
+      Symbol* temp = weightToSymbol.at(weights[i]).back();
+      weightToSymbol.at(weights[i]).pop_back();
+      temp->regNo = globalReg[next];
+      distributeVec.push_back(temp->regNo);
+      temp->distributed = true;
+      next++;
+      // global 不会有参数变量，且参数变量的值传递由调用函数负责
+    } else if (level == 1) {
+      Symbol* temp = weightToSymbol.at(weights[i]).back();
+      weightToSymbol.at(weights[i]).pop_back();
+      temp->regNo = localReg[next];
+      distributeVec.push_back(temp->regNo);
+      temp->distributed = true;
+      next = (next + 1) % localReg.size();
+      if (next == nextReg) {
+        break;
+      }
+    } else {
+      break;
+    }
+  }
+  if (level == 0) {
     while (next < globalReg.size()) {
       localReg.push_back(globalReg[next]);
       next++;
     }
   } else {
-    while(iter != symbolTable[level].end()) {
-      if ((*iter)->kind == VAR) {
-        if (weights.size() <= localReg.size()) {
-          (*iter)->regNo = localReg[next];
-          (*iter)->distributed = true;
-          next++;
-        } else {
-          if (weights[localReg.size()] <= (*iter)->weight && next < localReg.size()) {
-            (*iter)->regNo = localReg[next];
-            (*iter)->distributed = true;
-            next++;
-          }
-        }
-      } else if ((*iter)->kind == Para) {
-        // 需要加载初始化
-        if (weights.size() <= globalReg.size()) {
-          (*iter)->regNo = globalReg[next];
-          (*iter)->distributed = true;
-          fprintf(mips, "lw $%d, %d($fp)\n", (*iter)->regNo, (*iter)->spOff);
-          next++;
-        } else {
-          if (weights[globalReg.size()] <= (*iter)->weight && next < globalReg.size()) {
-            (*iter)->regNo = globalReg[next];
-            (*iter)->distributed = true;
-            fprintf(mips, "lw $%d, %d($fp)\n", (*iter)->regNo, (*iter)->spOff);
-            next++;
-          }
-        }
-      }
-      iter++;
-    }
-    // if there is still any localReg not be distributed, give the reg to tempReg
-    while (next < localReg.size()) {
-      tempReg.push_back(localReg[next]);
-      next++;
-    }
+    funcMapReg.insert({name, distributeVec});
+    nextReg = next;
   }
 }
 
@@ -264,9 +242,20 @@ int load(string name) { // load a var
       exit(1);
     }
   }
-  if (sym->regNo != 0) {
+  if (sym->regNo != 0 && (!sym->disable || (sym->disable && sym->regNo != sym->disableReg))) {
     // 已经被分配了寄存器的
     return sym->regNo;
+  } else if (sym->disable && sym->distributed) {
+    // 这个还是从栈帧里面取吧
+    sym->use++; // 引用次数加一
+    int reg = findNextReg();
+    if (reg == -1) {
+      fprintf(stderr, "no enough reg\n");
+      exit(1);
+    }
+    fprintf(mips, "lw $%d, %d($fp)\n", reg, sym->spOff);
+    sym->regNo = reg;
+    return reg;
   } else {
     // 当作中间变量处理，只是需要注意一下换出写回
     sym->use++; // 引用次数加一
@@ -298,13 +287,14 @@ void pop(string name, bool rewrite) { // 如果变量没有被分配寄存器，
       exit(1);
     }
   }
-  if (sym->distributed) {
+  if (sym->distributed && !sym->disable) {
     return;
   }
   sym->use --;
   // 还在被引用则不换出
   if (sym->use == 0 && sym->regNo != 0) {
     // 将变量换出寄存器堆
+    // disable 的情况一定不会 rewrite
     if (rewrite) { // 如果修改了就写回栈里
       if (level == 0) {
         // 全局变量
@@ -317,7 +307,11 @@ void pop(string name, bool rewrite) { // 如果变量没有被分配寄存器，
     // 归还借用的寄存器
     tempReg.push_back(sym->regNo);
     sym->use = 0;
-    sym->regNo = 0;
+    if (sym->disable) {
+      sym->regNo = sym->disableReg;
+    } else {
+      sym->regNo = 0;
+    }
   }
 }
 
@@ -342,9 +336,11 @@ int loadMid(string name) {
   }
 }
 
-void saveAll() {
-  // fp, ra 一定要保存，局部变量以及中间变量在寄存器里面的需要保存
+void saveAll(string name) {
+  // fp, ra 一定要保存，中间变量在寄存器里面的需要保存
+  // 局部寄存器中，只需要保存下一个函数会用到的寄存器
   int n = 0;
+  vector<int> distributedVec = funcMapReg.at(name);
   saveReg.clear();
   for(map<string, int>::iterator iter = midVar.begin(); iter != midVar.end(); iter++) {
     if (iter->second > 0) {
@@ -353,11 +349,29 @@ void saveAll() {
       n++;
     }
   }
+  // 对于冲突的寄存器保存在变量被分配到的地方，只有中间变量才写到这里
   for (list<Symbol*>::iterator iter = symbolTable[1].begin(); iter != symbolTable[1].end(); iter++) {
     if ((*iter)->regNo != 0) {
       // 在寄存器堆里面的局部变量
-      saveReg.push_back((*iter)->regNo);
-      n++;
+      bool shouldSave = false;
+      for (int i = 0; i < distributedVec.size(); i++) {
+        if (distributedVec[i] == (*iter)->regNo) {
+          shouldSave = true;
+          break;
+        }
+      }
+      if (shouldSave) {
+        if ((*iter)->disable) {
+          // 已经 disable 过了的
+          (*iter)->disableTimes++;
+        } else {
+          // 写回栈桢里
+          fprintf(mips, "sw $%d, %d($fp)\n", (*iter)->regNo, (*iter)->spOff);
+          (*iter)->disable = true;
+          (*iter)->disableReg = (*iter)->regNo;
+          (*iter)->disableTimes++;
+        }
+      }
     }
   }
   n+=2;
@@ -372,9 +386,19 @@ void saveAll() {
   fprintf(mips, "sw $ra, %d($sp)\n", off);
 }
 
-void restoreAll() {
+void restoreAll(string name) {
+  int n = 0;
+  vector<int> distributedVec = funcMapReg.at(name);
+  saveReg.clear();
+  for(map<string, int>::iterator iter = midVar.begin(); iter != midVar.end(); iter++) {
+    if (iter->second > 0) {
+      // 在寄存器堆里面的中间变量
+      saveReg.push_back(iter->second);
+      n++;
+    }
+  }
+  n+=2;
   int off = 0;
-  int n = saveReg.size() + 2;
   for(int i = 0; i < saveReg.size(); i++) {
     fprintf(mips, "lw $%d, %d($sp)\n", saveReg[i], off);
     off +=4;
@@ -383,6 +407,28 @@ void restoreAll() {
   off+=4;
   fprintf(mips, "lw $ra, %d($sp)\n", off);
   fprintf(mips, "addi $sp, $sp, %d\n", n*4); // 出栈
+  // fp 恢复之后，恢复冲突寄存器的值
+  for (list<Symbol*>::iterator iter = symbolTable[1].begin(); iter != symbolTable[1].end(); iter++) {
+    if ((*iter)->regNo != 0) {
+      // 在寄存器堆里面的局部变量
+      bool shouldRestore = false;
+      for (int i = 0; i < distributedVec.size(); i++) {
+        if (distributedVec[i] == (*iter)->regNo) {
+          shouldRestore = true;
+          break;
+        }
+      }
+      if (shouldRestore) {
+        // 要将其恢复
+        (*iter)->disableTimes--;
+        if ((*iter)->disableTimes == 0) {
+          fprintf(mips, "lw $%d, %d($fp)\n", (*iter)->regNo, (*iter)->spOff);
+          (*iter)->regNo = (*iter)->disableReg;
+          (*iter)->disable = false;
+        }
+      }
+    }
+  }
 }
 
 void popStack() {
@@ -413,25 +459,6 @@ void popMid(string name) {
   midVar.erase(name);
   midUse.erase(name);
 }
-
-/*void popAllVar() { // 将所有变量换出去
-  for(list<Symbol*>::iterator iter = symbolTable[0].begin(); iter != symbolTable[0].end(); iter++) {
-    if ((*iter)->regNo != 0 && (*iter)->use == 0) {
-      // 将其换出
-      fprintf(mips, "sw $%d, %d($gp)\n", (*iter)->regNo, (*iter)->spOff); // 存到 gp
-      regUse[(*iter)->regNo - 8] = 0; // set regUse free
-      (*iter)->regNo = 0;
-    }
-  }
-  for(list<Symbol*>::iterator iter = symbolTable[1].begin(); iter != symbolTable[1].end(); iter++) {
-    if ((*iter)->regNo != 0 && (*iter)->use == 0) {
-      // 将其换出
-      fprintf(mips, "sw $%d, %d($fp)\n", (*iter)->regNo, (*iter)->spOff); // 存到 gp
-      regUse[(*iter)->regNo - 8] = 0; // set regUse free
-      (*iter)->regNo = 0;
-    }
-  }
-}*/
 
 void genMips() {
   ifstream mid;
@@ -503,7 +530,7 @@ void genMips() {
       } else {
         regA = load(strs[1]);
       }
-      fprintf(mips, "bnq $%d, $0, %s\n", loadMid(strs[1]), strs[2].data());
+      fprintf(mips, "bne $%d, $0, %s\n", regA, strs[2].data());
       if (isChar(strs[1]) || isConst(strs[1]) || isNum(strs[1])) {
         tempReg.push_back(regA);
       } else if (isMid(strs[1])) {
@@ -511,44 +538,77 @@ void genMips() {
       } else {
         pop(strs[1], false);
       }
-    } else if (strs[0] == "$push") {
-      if (strs.size() != 4){
+    } else if (strs[0] == "$push") { // push 的时候参数的变量已经被分配寄存器，所以直接传给它
+      if (strs.size() != 5){
         fprintf(stderr, "error push\n");
         exit(1);
+      }
+      int n = stoi(strs[2]);
+      int i = 0;
+      Symbol* temp;
+      list<Symbol*> callFuncTable = symbolMap.at(strs[4]);
+      for(list<Symbol*>::iterator iter = callFuncTable.begin(); iter != callFuncTable.end(); iter++) {
+        i++;
+        if (n == i) {
+          temp = (*iter);
+          break;
+        }
       }
       if (strs[1].length() == 3 && strs[1][0] == '\'' && strs[1][2] == '\'') {
         // 表达式为一个字符，存入 ASCII 码值
         int ascii = strs[1][1];
-        fprintf(mips, "li $at, %d\n", ascii);
-        fprintf(mips, "sw $at, %d($sp)\n", 4*(stoi(strs[3]) - stoi(strs[2])));
+        if (temp->distributed) {
+          fprintf(mips, "li $%d, %d\n", temp->regNo, ascii);
+        } else {
+          fprintf(mips, "li $at, %d\n", ascii);
+          fprintf(mips, "sw $at, %d($sp)\n", 4*(stoi(strs[3]) - stoi(strs[2])));
+        }
       } else if (isNum(strs[1])) {
         // 表达式为一个整数
-        fprintf(mips, "li $at, %d\n", stoi(strs[1])); // TODO: stoi 应该可以转负数吧
-        fprintf(mips, "sw $at, %d($sp)\n", 4*(stoi(strs[3]) - stoi(strs[2])));
+        if (temp->distributed) {
+          fprintf(mips, "li $%d, %d\n", temp->regNo, stoi(strs[1]));
+        } else {
+          fprintf(mips, "li $at, %d\n", stoi(strs[1])); // TODO: stoi 应该可以转负数吧
+          fprintf(mips, "sw $at, %d($sp)\n", 4*(stoi(strs[3]) - stoi(strs[2])));
+        }
       } else if (isMid(strs[1])) {
         // 中间变量
-        fprintf(mips, "sw $%d, %d($sp)\n", loadMid(strs[1]), 4*(stoi(strs[3]) - stoi(strs[2])));
+        if (temp->distributed) {
+          fprintf(mips, "move $%d, $%d\n", temp->regNo, loadMid(strs[1]));
+        } else {  
+          fprintf(mips, "sw $%d, %d($sp)\n", loadMid(strs[1]), 4*(stoi(strs[3]) - stoi(strs[2])));
+        }
         popMid(strs[1]);
       } else {
         // 标识符
         if (isConst(strs[1])) {
-          fprintf(mips, "li $at, %d\n", getConst(strs[1]));
-          fprintf(mips, "sw $at, %d($sp)\n", 4*(stoi(strs[3]) - stoi(strs[2])));
+          if (temp->distributed) {
+            fprintf(mips, "li $%d, %d\n", temp->regNo, getConst(strs[1]));
+          } else {
+            fprintf(mips, "li $at, %d\n", getConst(strs[1]));
+            fprintf(mips, "sw $at, %d($sp)\n", 4*(stoi(strs[3]) - stoi(strs[2])));
+          }
         } else {
-          int reg = load(strs[1]);
-          fprintf(mips, "sw $%d, %d($sp)\n", reg, 4*(stoi(strs[3]) - stoi(strs[2])));
+          // 因为现在局部变量寄存器池已经存在被更改的可能，被更改的可能是因为这个同一个寄存器被两个函数都用了，那么该寄存器的值一定在栈里
+          // 对于冲突的寄存器，我们已经用 disable 解决了这个问题，在 load 和 pop 的机制里检查了。
+          int reg = load(strs[1]); // 如果 strs[1] 没有被分配寄存器，那么 reg 必不可能与 saveReg 冲突
+          if (temp->distributed) {
+            fprintf(mips, "move $%d, $%d\n", temp->regNo, reg);
+          } else {
+            fprintf(mips, "sw $%d, %d($sp)\n", reg, 4*(stoi(strs[3]) - stoi(strs[2])));
+          }
           pop(strs[1], false);
         }
       }
     } else if (strs[0] == "$save") {
       // 保存现场，自减 sp
-      saveAll();
+      saveAll(strs[2]);
       Symbol* sym = lookTable(strs[2], 0);
       if (sym == NULL) {
         fprintf(stderr, "use func error\n");
         exit(1);
       }
-      int paraLen = sym->remark.length();
+      paraLen = sym->remark.length();
       fprintf(mips, "addi $sp, $sp, -%d\n", paraLen * 4);
     } else if (strs[0] == "$call") {
       Symbol* sym = lookTable(strs[1], 0);
@@ -556,10 +616,10 @@ void genMips() {
         fprintf(stderr, "use func error\n");
         exit(1);
       }
-      int paraLen = sym->remark.length();
+      paraLen = sym->remark.length();
       fprintf(mips, "addi $fp, $sp, %d\n", paraLen*4); // update fp
       fprintf(mips, "jal %s\n", strs[1].data());
-      restoreAll();
+      restoreAll(strs[1]);
     } else if (strs[0] == "scanf") {
       if (strs[1] == "int") {
         fprintf(mips, "li $v0, 5\n");
@@ -648,7 +708,7 @@ void genMips() {
       symbolTable[1] = symbolMap[strs[1]];
       // reset tempReg
       tempReg = {8, 9, 10, 11};
-      initVar(1);
+      initVar(1, strs[1]);
     } else if (strs[0] == "$bne" || strs[0] == "$beq" || strs[0] == "$bge" || strs[0] == "$bgt" || strs[0] == "$blt" || strs[0] == "$ble") {
       int regA;
       int regB;
