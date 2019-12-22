@@ -36,7 +36,7 @@ void voidFuncParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root);
 bool sentenceListParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type);
 bool sentenceParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type);
 bool ifParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type);
-void conditionParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, bool isZeroBranch);
+void conditionParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, bool isZeroBranch, int labelCnt);
 int expParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root); // 0 int 1 char
 int polyParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root);
 int factorParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root);
@@ -519,7 +519,7 @@ bool ifParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type) { 
   SyntaxNode* tempRoot = new SyntaxNode("<条件>", "", "");
   root->appendChild(tempRoot);
   int elseLabel = ++labelCnt;
-  conditionParse(iter, tempRoot, true);
+  conditionParse(iter, tempRoot, true, elseLabel);
   if ((*iter)->token != "RPARENT") {
     printError((*iter)->lineNumber, 'l');
   } else {
@@ -547,7 +547,7 @@ bool ifParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type) { 
 }
 
 // 返回时 regCnt 保存条件结果
-void conditionParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, bool isZeroBrach) { // 条件
+void conditionParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, bool isZeroBrach, int labelCnt) { // 条件
   SyntaxNode* expressionRoot = new SyntaxNode("<表达式>", "", "");
   root->appendChild(expressionRoot);
   int res = expParse(iter, expressionRoot);
@@ -937,7 +937,7 @@ bool circleParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type
     int endWhile = ++labelCnt;
     bufferOn = true;
     conditionBuffer.clear();
-    conditionParse(iter, tempRoot, true); // 条件
+    conditionParse(iter, tempRoot, true, endWhile); // 条件
     fprintf(out, "label%d:\n", whileLabel); // while:
     vector<string> conditions;
     for (int i = 0; i < conditionBuffer.size(); i++) {
@@ -974,7 +974,7 @@ bool circleParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type
     appendLeaf(iter, root); // (
     tempRoot = new SyntaxNode("<条件>", "", "");
     root->appendChild(tempRoot);
-    conditionParse(iter, tempRoot, false);
+    conditionParse(iter, tempRoot, false, doLabel);
     if ((*iter)->token != "RPARENT") {
       printError((*iter)->lineNumber, 'l');
     } else {
@@ -1017,7 +1017,7 @@ bool circleParse(list<struct Lexeme>::iterator* iter, SyntaxNode* root, int type
     // 记录输出的条件中间代码
     bufferOn = true;
     conditionBuffer.clear();
-    conditionParse(iter, tempRoot, true); // 只会记录条件相关的中间代码
+    conditionParse(iter, tempRoot, true, endFor); // 只会记录条件相关的中间代码
     vector<string> conditions;
     for (int i = 0; i < conditionBuffer.size(); i++){
       conditions.push_back(conditionBuffer[i]);
